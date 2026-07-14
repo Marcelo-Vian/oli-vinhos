@@ -51,6 +51,8 @@ type Filters = {
   available: boolean;
 };
 
+type ActionFeedback = { type: "ok" | "error"; text: string };
+
 const initialFilters: Filters = { country: "", type: "", grape: "", producer: "", vintage: "", maxPrice: 150, featured: false, promotion: false, available: false };
 
 export default function StoreApp() {
@@ -61,6 +63,7 @@ export default function StoreApp() {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState("featured");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [detail, setDetail] = useState<WineProduct | null>(null);
   const [detailQty, setDetailQty] = useState(1);
@@ -78,6 +81,7 @@ export default function StoreApp() {
   const [completedOrder, setCompletedOrder] = useState<CustomerOrder | null>(null);
   const [completedMessage, setCompletedMessage] = useState("");
   const [emailNotice, setEmailNotice] = useState("");
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -88,6 +92,18 @@ export default function StoreApp() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try { setFavoriteIds(JSON.parse(localStorage.getItem("oli-vinhos-favorites") ?? "[]")); }
+      catch { setFavoriteIds([]); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("oli-vinhos-favorites", JSON.stringify(favoriteIds));
+  }, [favoriteIds]);
 
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem("oli-vinhos-cart", JSON.stringify(cart));
@@ -179,8 +195,12 @@ export default function StoreApp() {
     }));
   }
 
-  async function loadAccount() {
-    if (!supabase || !session) return;
+  function toggleFavorite(id: string) {
+    setFavoriteIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  async function loadAccount(): Promise<ActionFeedback> {
+    if (!supabase || !session) return { type: "error", text: "Sua sessão não está disponível. Entre novamente." };
     setAccountLoading(true);
     const [profileResult, ordersResult] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", session.user.id).single(),
@@ -196,14 +216,20 @@ export default function StoreApp() {
       setOrders(nextOrders);
     }
     setAccountLoading(false);
+    if (profileResult.error || ordersResult.error) return { type: "error", text: "Não foi possível atualizar todos os dados da sua conta." };
+    return { type: "ok", text: "Dados atualizados." };
   }
 
-  async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!supabase || !session) return; const data = new FormData(event.currentTarget);
+  async function saveProfile(event: React.FormEvent<HTMLFormElement>): Promise<ActionFeedback> {
+    event.preventDefault();
+    if (!supabase || !session) return { type: "error", text: "Sua sessão expirou. Entre novamente." };
+    const data = new FormData(event.currentTarget);
     const fullName = String(data.get("full_name") ?? "").trim(); const phone = String(data.get("phone") ?? "").trim();
-    if (!fullName || !phone) return;
+    if (!fullName || !phone) return { type: "error", text: "Preencha o nome e o telefone." };
     const { error } = await supabase.from("profiles").update({ full_name: fullName, phone }).eq("id", session.user.id);
-    if (!error) setProfile((current) => current ? { ...current, full_name: fullName, phone } : current);
+    if (error) return { type: "error", text: `Não foi possível salvar: ${error.message}` };
+    setProfile((current) => current ? { ...current, full_name: fullName, phone } : current);
+    return { type: "ok", text: "Dados pessoais salvos com sucesso." };
   }
 
   function openCheckout() {
@@ -259,7 +285,7 @@ export default function StoreApp() {
         <a className="brand" href="#top" aria-label="OLI Vinhos - início"><span>OLI</span><small>VINHOS</small></a>
         <nav aria-label="Navegação principal"><a href="#catalogo">Catálogo</a><a href="#como-funciona">Como funciona</a><a href="#contato">Contato</a></nav>
         <div className="header-actions">
-          <button className="icon-button mobile-menu" aria-label="Abrir menu"><Menu size={20}/></button>
+          <button className="icon-button mobile-menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Menu size={20}/></button>
           <button className="account-button" onClick={() => session ? setAccountOpen(true) : setAuthOpen(true)}><UserRound size={18}/><span>{session ? "Minha conta" : "Entrar"}</span></button>
           <button className="cart-button" onClick={() => setCartOpen(true)}><ShoppingBag size={19}/><span>Carrinho</span>{cartCount > 0 && <b>{cartCount}</b>}</button>
         </div>
@@ -301,7 +327,7 @@ export default function StoreApp() {
               <div className="results-line"><span>{visible.length} {visible.length === 1 ? "vinho encontrado" : "vinhos encontrados"}</span><button onClick={() => { setFilters(initialFilters); setQuery(""); }}>Limpar filtros</button></div>
               {loading ? <div className="loading-grid">{[1,2,3,4,5,6].map((n) => <div key={n} className="skeleton-card"/>)}</div>
               : visible.length === 0 ? <div className="empty-state"><Wine size={40}/><h3>Nenhum vinho encontrado</h3><p>Tente ampliar a faixa de preço ou remover algum filtro.</p><button className="secondary-button" onClick={() => { setFilters(initialFilters); setQuery(""); }}>Limpar filtros</button></div>
-              : <div className="product-grid">{visible.map((p) => <ProductCard key={p.id} product={p} onDetail={() => { setDetail(p); setDetailQty(1); }} onAdd={() => addToCart(p)}/>)}</div>}
+              : <div className="product-grid">{visible.map((p) => <ProductCard key={p.id} product={p} favorite={favoriteIds.includes(p.id)} onFavorite={() => toggleFavorite(p.id)} onDetail={() => { setDetail(p); setDetailQty(1); }} onAdd={() => addToCart(p)}/>)}</div>}
             </div>
           </div>
         </section>
@@ -319,8 +345,9 @@ export default function StoreApp() {
       <a className="whatsapp-float" href={`https://wa.me/${STORE_CONFIG.whatsappInternational}`} target="_blank" rel="noreferrer" aria-label="Falar com a OLI Vinhos pelo WhatsApp">WA</a>
 
       {filterOpen && <div className="drawer-overlay" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setFilterOpen(false)}><aside className="mobile-filter drawer"><div className="drawer-head"><h2>Filtros</h2><button onClick={() => setFilterOpen(false)} aria-label="Fechar filtros"><X/></button></div><FilterPanel options={options} filters={filters} setFilters={setFilters} mobile/><button className="primary-button wide" onClick={() => setFilterOpen(false)}>Ver {visible.length} vinhos</button></aside></div>}
+      {menuOpen && <div className="drawer-overlay" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setMenuOpen(false)}><aside className="mobile-nav drawer"><div className="drawer-head"><div><p>NAVEGAÇÃO</p><h2>Menu</h2></div><button onClick={() => setMenuOpen(false)} aria-label="Fechar menu"><X/></button></div><nav><a href="#catalogo" onClick={() => setMenuOpen(false)}>Catálogo</a><a href="#como-funciona" onClick={() => setMenuOpen(false)}>Como funciona</a><a href="#contato" onClick={() => setMenuOpen(false)}>Contato</a><button onClick={() => { setMenuOpen(false); if (session) setAccountOpen(true); else setAuthOpen(true); }}><UserRound/> {session ? "Minha conta" : "Entrar ou cadastrar"}</button></nav></aside></div>}
       {cartOpen && <CartDrawer cart={cart} total={total} onClose={() => setCartOpen(false)} onQuantity={setQuantity} onClear={() => setCart([])} onCheckout={openCheckout}/>}
-      {detail && <ProductModal product={detail} quantity={detailQty} setQuantity={setDetailQty} onClose={() => setDetail(null)} onAdd={() => { addToCart(detail, detailQty); setDetail(null); }}/>}      
+      {detail && <ProductModal product={detail} quantity={detailQty} setQuantity={setDetailQty} onClose={() => setDetail(null)} onAdd={() => { addToCart(detail, detailQty); setDetail(null); }}/>}
       {checkoutOpen && <CheckoutModal total={total} cart={cart} error={formError} profile={profile} email={session?.user.email ?? ""} submitting={orderSubmitting} onClose={() => setCheckoutOpen(false)} onSubmit={sendOrder}/>}
       {authOpen && <CustomerAuthModal onClose={() => { setAuthOpen(false); setCheckoutAfterLogin(false); }}/>}
       {accountOpen && session && <CustomerAccountModal profile={profile} orders={orders} loading={accountLoading} onRefresh={loadAccount} onSaveProfile={saveProfile} onClose={() => setAccountOpen(false)} onSignOut={async () => { await supabase?.auth.signOut(); setAccountOpen(false); }}/>}
@@ -329,12 +356,12 @@ export default function StoreApp() {
   );
 }
 
-function ProductCard({ product, onDetail, onAdd }: { product: WineProduct; onDetail: () => void; onAdd: () => void }) {
+function ProductCard({ product, favorite, onFavorite, onDetail, onAdd }: { product: WineProduct; favorite: boolean; onFavorite: () => void; onDetail: () => void; onAdd: () => void }) {
   const unavailable = product.quantity_available === 0;
   return <article className="product-card">
     <div className="product-media">
       <div className="badges">{product.promotional_price !== null && <span className="sale">OFERTA</span>}{product.low_stock && <span>POUCAS UNIDADES</span>}{product.featured && <span>DESTAQUE</span>}</div>
-      <button className="heart" aria-label={`Favoritar ${product.name}`}><Heart size={18}/></button>
+      <button className={`heart ${favorite ? "active" : ""}`} onClick={onFavorite} aria-pressed={favorite} aria-label={`${favorite ? "Remover" : "Adicionar"} ${product.name} ${favorite ? "dos" : "aos"} favoritos`}><Heart size={18}/></button>
       <img src={assetUrl(product.image_url ?? "/products/placeholder.webp")} alt={`Garrafa do vinho ${product.name}`} loading="lazy"/>
     </div>
     <div className="product-body"><p className="product-origin">{[product.country, product.region].filter(Boolean).join(" • ")}</p><h3>{product.name}</h3><p className="product-meta">{[product.type, product.grape, product.vintage].filter(Boolean).join(" · ")}</p>
@@ -364,35 +391,63 @@ function CheckoutModal({ total, cart, error, profile, email, submitting, onClose
 
 function CustomerAuthModal({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
   const [busy, setBusy] = useState(false);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!supabase) return; const data = new FormData(event.currentTarget); setBusy(true); setMessage("");
+    event.preventDefault();
+    if (!supabase) { setFeedback({ type: "error", text: "A conexão com a área de clientes não está disponível. Atualize a página e tente novamente." }); return; }
+    const data = new FormData(event.currentTarget); setBusy(true); setFeedback(null);
     const email = String(data.get("email") ?? ""); const password = String(data.get("password") ?? "");
     if (mode === "login") {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setMessage("E-mail ou senha inválidos."); else onClose();
+      if (error) setFeedback({ type: "error", text: "E-mail ou senha inválidos." }); else onClose();
     } else {
-      if (password.length < 8) { setMessage("A senha deve ter pelo menos 8 caracteres."); setBusy(false); return; }
+      if (password.length < 8) { setFeedback({ type: "error", text: "A senha deve ter pelo menos 8 caracteres." }); setBusy(false); return; }
       const confirmation = String(data.get("confirmation") ?? "");
-      if (password !== confirmation) { setMessage("A confirmação da senha não confere."); setBusy(false); return; }
+      if (password !== confirmation) { setFeedback({ type: "error", text: "A confirmação da senha não confere." }); setBusy(false); return; }
       const { data: result, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}${sitePath("/")}`, data: { full_name: String(data.get("full_name") ?? ""), phone: String(data.get("phone") ?? "") } } });
-      if (error) setMessage(error.message); else if (result.session) onClose(); else setMessage("Cadastro recebido. Confira seu e-mail para confirmar a conta e depois faça login.");
+      if (error) setFeedback({ type: "error", text: error.message }); else if (result.session) onClose(); else setFeedback({ type: "ok", text: "Cadastro recebido. Confira seu e-mail para confirmar a conta e depois faça login." });
     }
     setBusy(false);
   }
-  return <div className="modal-overlay"><div className="auth-modal"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X/></button><div className="auth-brand"><Wine/> OLI <span>CLIENTES</span></div><p className="eyebrow">{mode === "login" ? "Sua conta" : "Novo cliente"}</p><h2>{mode === "login" ? "Entrar" : "Criar cadastro"}</h2><p>{mode === "login" ? "Acompanhe pedidos e consulte seu histórico." : "Cadastre-se para registrar e acompanhar seus pedidos."}</p><form onSubmit={submit}>{mode === "signup" && <><label>Nome completo<input name="full_name" required/></label><label>Telefone<input name="phone" type="tel" required/></label></>}<label>E-mail<input name="email" type="email" required autoComplete="email"/></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"}/></label>{mode === "signup" && <label>Confirmar senha<input name="confirmation" type="password" required minLength={8} autoComplete="new-password"/></label>}{message && <div className="form-error"><CircleAlert size={16}/>{message}</div>}<button className="primary-button wide" disabled={busy}>{busy ? "Aguarde…" : mode === "login" ? "Entrar" : "Criar conta"}</button></form><button className="auth-switch" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(""); }}>{mode === "login" ? "Ainda não tenho cadastro" : "Já tenho cadastro"}</button></div></div>;
+  return <div className="modal-overlay"><div className="auth-modal"><button type="button" className="modal-close" onClick={onClose} aria-label="Fechar" disabled={busy}><X/></button><div className="auth-brand"><Wine/> OLI <span>CLIENTES</span></div><p className="eyebrow">{mode === "login" ? "Sua conta" : "Novo cliente"}</p><h2>{mode === "login" ? "Entrar" : "Criar cadastro"}</h2><p>{mode === "login" ? "Acompanhe pedidos e consulte seu histórico." : "Cadastre-se para registrar e acompanhar seus pedidos."}</p><form onSubmit={submit}>{mode === "signup" && <><label>Nome completo<input name="full_name" required disabled={busy}/></label><label>Telefone<input name="phone" type="tel" required disabled={busy}/></label></>}<label>E-mail<input name="email" type="email" required autoComplete="email" disabled={busy}/></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} disabled={busy}/></label>{mode === "signup" && <label>Confirmar senha<input name="confirmation" type="password" required minLength={8} autoComplete="new-password" disabled={busy}/></label>}{feedback && <ActionMessage feedback={feedback}/>}<button type="submit" className="primary-button wide" disabled={busy}>{busy ? <><LoaderCircle className="spin"/> Aguarde…</> : mode === "login" ? "Entrar" : "Criar conta"}</button></form><button type="button" className="auth-switch" disabled={busy} onClick={() => { setMode(mode === "login" ? "signup" : "login"); setFeedback(null); }}>{mode === "login" ? "Ainda não tenho cadastro" : "Já tenho cadastro"}</button></div></div>;
 }
 
-function CustomerAccountModal({ profile, orders, loading, onRefresh, onSaveProfile, onClose, onSignOut }: { profile: CustomerProfile | null; orders: CustomerOrder[]; loading: boolean; onRefresh: () => void; onSaveProfile: (e: React.FormEvent<HTMLFormElement>) => void; onClose: () => void; onSignOut: () => void }) {
+function ActionMessage({ feedback }: { feedback: ActionFeedback }) {
+  return <div className={`form-feedback ${feedback.type}`} role="status">{feedback.type === "ok" ? <Check size={17}/> : <CircleAlert size={17}/>}<span>{feedback.text}</span></div>;
+}
+
+function CustomerAccountModal({ profile, orders, loading, onRefresh, onSaveProfile, onClose, onSignOut }: { profile: CustomerProfile | null; orders: CustomerOrder[]; loading: boolean; onRefresh: () => Promise<ActionFeedback>; onSaveProfile: (e: React.FormEvent<HTMLFormElement>) => Promise<ActionFeedback>; onClose: () => void; onSignOut: () => Promise<void> | void }) {
   const [tab, setTab] = useState<"orders" | "profile">("orders");
-  const [passwordMessage, setPasswordMessage] = useState("");
-  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!supabase) return; const data = new FormData(event.currentTarget); const password = String(data.get("password") ?? "");
-    if (password.length < 8) { setPasswordMessage("Use pelo menos 8 caracteres."); return; }
-    const { error } = await supabase.auth.updateUser({ password }); setPasswordMessage(error ? "Não foi possível alterar a senha." : "Senha alterada com sucesso.");
+  const [profileFeedback, setProfileFeedback] = useState<ActionFeedback | null>(null);
+  const [passwordFeedback, setPasswordFeedback] = useState<ActionFeedback | null>(null);
+  const [refreshFeedback, setRefreshFeedback] = useState<ActionFeedback | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
+  async function saveProfileForm(event: React.FormEvent<HTMLFormElement>) {
+    setProfileBusy(true); setProfileFeedback(null);
+    const result = await onSaveProfile(event);
+    setProfileFeedback(result); setProfileBusy(false);
   }
-  return <div className="drawer-overlay"><aside className="account-drawer drawer"><div className="drawer-head"><div><p>ÁREA DO CLIENTE</p><h2>Minha conta</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="account-tabs"><button className={tab === "orders" ? "active" : ""} onClick={() => setTab("orders")}><History/> Pedidos</button><button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}><UserRound/> Meus dados</button></div>{tab === "orders" ? <div className="account-content"><div className="account-title"><h3>Histórico de pedidos</h3><button onClick={onRefresh}><LoaderCircle className={loading ? "spin" : ""}/></button></div>{loading ? <p className="account-empty">Carregando pedidos…</p> : orders.length === 0 ? <div className="account-empty"><ShoppingBag/><h3>Nenhum pedido ainda</h3><p>Seus próximos pedidos aparecerão aqui.</p></div> : orders.map((order) => <article className="customer-order" key={order.id}><div className="customer-order-head"><div><small>Pedido</small><strong>#{order.order_number}</strong></div><span className={`order-status ${order.status}`}>{orderStatusLabel[order.status]}</span></div><p>{dateTime.format(new Date(order.created_at))} • Retirada {new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</p><div className="customer-order-items">{order.order_items.map((item) => <div key={item.id}><span>{item.quantity}× {item.product_name}</span><b>{money.format(Number(item.line_total))}</b></div>)}</div><div className="customer-order-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div><div className="status-timeline">{order.order_status_history.map((history) => <div key={history.id}><i/><span><b>{orderStatusLabel[history.status]}</b><small>{dateTime.format(new Date(history.created_at))}{history.note ? ` • ${history.note}` : ""}</small></span></div>)}</div></article>)}</div> : <div className="account-content"><form className="account-form" onSubmit={onSaveProfile}><h3>Dados pessoais</h3><label>Nome completo<input name="full_name" defaultValue={profile?.full_name ?? ""} required/></label><label>E-mail<input value={profile?.email ?? ""} readOnly/></label><label>Telefone<input name="phone" type="tel" defaultValue={profile?.phone ?? ""} required/></label><button className="primary-button" type="submit">Salvar dados</button></form><form className="account-form" onSubmit={changePassword}><h3><KeyRound/> Alterar senha</h3><label>Nova senha<input name="password" type="password" minLength={8} required autoComplete="new-password"/></label>{passwordMessage && <small>{passwordMessage}</small>}<button className="secondary-button" type="submit">Atualizar senha</button></form></div>}<div className="account-footer"><button onClick={onSignOut}><LogOut/> Sair da conta</button></div></aside></div>;
+  async function refreshAccount() {
+    setRefreshFeedback(null);
+    const result = await onRefresh();
+    setRefreshFeedback(result);
+  }
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) { setPasswordFeedback({ type: "error", text: "A conexão não está disponível. Atualize a página e tente novamente." }); return; }
+    if (passwordBusy) return; const form = event.currentTarget; const data = new FormData(form); const password = String(data.get("password") ?? "");
+    setPasswordFeedback(null);
+    if (password.length < 8) { setPasswordFeedback({ type: "error", text: "Use pelo menos 8 caracteres." }); return; }
+    setPasswordBusy(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setPasswordBusy(false);
+    if (error) setPasswordFeedback({ type: "error", text: `Não foi possível alterar a senha: ${error.message}` });
+    else { form.reset(); setPasswordFeedback({ type: "ok", text: "Senha alterada com sucesso." }); }
+  }
+  return <div className="drawer-overlay"><aside className="account-drawer drawer"><div className="drawer-head"><div><p>ÁREA DO CLIENTE</p><h2>Minha conta</h2></div><button type="button" onClick={onClose} aria-label="Fechar"><X/></button></div><div className="account-tabs"><button type="button" className={tab === "orders" ? "active" : ""} onClick={() => setTab("orders")}><History/> Pedidos</button><button type="button" className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}><UserRound/> Meus dados</button></div>{tab === "orders" ? <div className="account-content"><div className="account-title"><h3>Histórico de pedidos</h3><button type="button" onClick={refreshAccount} disabled={loading} aria-label="Atualizar pedidos" title="Atualizar pedidos"><LoaderCircle className={loading ? "spin" : ""}/></button></div>{refreshFeedback&&<ActionMessage feedback={refreshFeedback}/>} {loading ? <p className="account-empty">Carregando pedidos…</p> : orders.length === 0 ? <div className="account-empty"><ShoppingBag/><h3>Nenhum pedido ainda</h3><p>Seus próximos pedidos aparecerão aqui.</p></div> : orders.map((order) => <article className="customer-order" key={order.id}><div className="customer-order-head"><div><small>Pedido</small><strong>#{order.order_number}</strong></div><span className={`order-status ${order.status}`}>{orderStatusLabel[order.status]}</span></div><p>{dateTime.format(new Date(order.created_at))} • Retirada {new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</p><div className="customer-order-items">{order.order_items.map((item) => <div key={item.id}><span>{item.quantity}× {item.product_name}</span><b>{money.format(Number(item.line_total))}</b></div>)}</div><div className="customer-order-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div><div className="status-timeline">{order.order_status_history.map((history) => <div key={history.id}><i/><span><b>{orderStatusLabel[history.status]}</b><small>{dateTime.format(new Date(history.created_at))}{history.note ? ` • ${history.note}` : ""}</small></span></div>)}</div></article>)}</div> : <div className="account-content"><form className="account-form" onSubmit={saveProfileForm}><h3>Dados pessoais</h3><label>Nome completo<input name="full_name" defaultValue={profile?.full_name ?? ""} required disabled={profileBusy}/></label><label>E-mail<input value={profile?.email ?? ""} readOnly/></label><label>Telefone<input name="phone" type="tel" defaultValue={profile?.phone ?? ""} required disabled={profileBusy}/></label>{profileFeedback&&<ActionMessage feedback={profileFeedback}/>}<button className="primary-button" type="submit" disabled={profileBusy}>{profileBusy?<><LoaderCircle className="spin"/> Salvando…</>:"Salvar dados"}</button></form><form className="account-form" onSubmit={changePassword}><h3><KeyRound/> Alterar senha</h3><label>Nova senha<input name="password" type="password" minLength={8} required autoComplete="new-password" disabled={passwordBusy}/></label>{passwordFeedback&&<ActionMessage feedback={passwordFeedback}/>}<button className="secondary-button" type="submit" disabled={passwordBusy}>{passwordBusy?<><LoaderCircle className="spin"/> Atualizando…</>:"Atualizar senha"}</button></form></div>}<div className="account-footer"><button type="button" disabled={signOutBusy} onClick={async()=>{setSignOutBusy(true);await onSignOut();}}><LogOut/> {signOutBusy?"Saindo…":"Sair da conta"}</button></div></aside></div>;
 }
 
 function OrderSuccessModal({ order, message, emailNotice, onClose, onAccount }: { order: CustomerOrder; message: string; emailNotice: string; onClose: () => void; onAccount: () => void }) {

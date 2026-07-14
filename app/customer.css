@@ -8,6 +8,9 @@
 .auth-modal label,.account-form label{font-size:10px;text-transform:uppercase;letter-spacing:.08em}
 .auth-modal input,.account-form input{display:block;width:100%;border:1px solid var(--line);background:white;padding:11px;margin-top:6px;text-transform:none;letter-spacing:0}
 .auth-switch{width:100%;border:0;background:none;color:var(--wine);text-decoration:underline;margin-top:18px;font-size:12px}
+.form-feedback{display:flex;align-items:flex-start;gap:8px;padding:11px 12px;font-size:11px;line-height:1.45;text-transform:none;letter-spacing:0}.form-feedback.ok{background:#e2f1e7;color:#27553a}.form-feedback.error{background:#fae9eb;color:#9c2637}.form-feedback svg{flex:0 0 auto;margin-top:1px}.account-form button svg{width:16px}.account-form button:disabled,.account-footer button:disabled,.auth-switch:disabled{opacity:.55;cursor:not-allowed}
+.mobile-nav{width:min(360px,100%)}.mobile-nav nav{display:grid;padding:24px}.mobile-nav nav a,.mobile-nav nav button{border:0;border-bottom:1px solid var(--line);background:none;color:var(--wine);padding:17px 4px;text-align:left;font-family:var(--serif);font-size:22px;display:flex;align-items:center;gap:9px}.mobile-nav nav button svg{width:19px}
+.heart.active{background:var(--wine)!important;color:white!important}.heart.active svg{fill:currentColor}
 .account-drawer{width:min(590px,100%)}
 .account-tabs{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
 .account-tabs button{border:0;background:white;padding:15px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--muted)}
@@ -28,7 +31,7 @@
 .customer-order-items{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:9px 0}.customer-order-items>div{display:flex;justify-content:space-between;font-size:11px;padding:4px 0}
 .customer-order-total{padding:12px 0}.customer-order-total strong{font-family:var(--serif);font-size:20px;color:var(--wine)}
 .status-timeline{border-top:1px solid var(--line);padding-top:10px}.status-timeline>div{display:flex;gap:9px;margin:7px 0}.status-timeline i{width:7px;height:7px;border-radius:50%;background:var(--gold);margin-top:4px}.status-timeline span{display:flex;flex-direction:column}.status-timeline b{font-size:10px}.status-timeline small{font-size:9px;color:var(--muted);margin-top:2px}
-.account-form{background:white;border:1px solid var(--line);padding:20px;margin-bottom:18px}.account-form h3{display:flex;align-items:center;gap:8px}.account-form h3 svg{width:18px}.account-form>small{color:var(--green)}
+.account-form{background:white;border:1px solid var(--line);padding:20px;margin-bottom:18px}.account-form h3{display:flex;align-items:center;gap:8px}.account-form h3 svg{width:18px}.account-form>small{color:var(--green)}.account-form .secondary-button{display:flex;align-items:center;justify-content:center;gap:8px}
 .account-footer{padding:14px 28px;border-top:1px solid var(--line)}.account-footer button{border:0;background:none;color:var(--wine);display:flex;align-items:center;gap:7px}
 .success-icon{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:#dceee2;color:var(--green);margin-bottom:24px}.order-success>small{display:block;background:#f2ece4;padding:12px;color:var(--muted);line-height:1.5}
 .order-send-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0}.order-send-actions .secondary-button{text-align:center;display:flex;align-items:center;justify-content:center}.account-history-link{border:0;background:none;color:var(--wine);display:flex;align-items:center;gap:8px;margin:auto}.account-history-link svg{width:16px}

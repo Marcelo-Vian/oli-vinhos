@@ -10,7 +10,11 @@ const escapeHtml = (value: unknown) => String(value ?? "")
 export default {
   fetch: withSupabase({ auth: "user" }, async (request, context) => {
     const { orderId } = await request.json().catch(() => ({ orderId: null })) as { orderId?: string | null };
-    if (!orderId || !context.userClaims?.id) return Response.json({ message: "Pedido inválido." }, { status: 400 });
+    const claims = context.userClaims as { sub?: string; id?: string } | undefined;
+    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    const { data: verifiedAuth } = token ? await context.supabaseAdmin.auth.getUser(token) : { data: { user: null } };
+    const callerId = verifiedAuth.user?.id ?? claims?.sub ?? claims?.id;
+    if (!orderId || !callerId) return Response.json({ message: "Pedido inválido." }, { status: 400 });
 
     const { data: order, error } = await context.supabaseAdmin
       .from("orders")
@@ -19,8 +23,8 @@ export default {
       .single();
     if (error || !order) return Response.json({ message: "Pedido não encontrado." }, { status: 404 });
 
-    const { data: caller } = await context.supabaseAdmin.from("profiles").select("role").eq("id", context.userClaims.id).single();
-    if (order.user_id !== context.userClaims.id && caller?.role !== "admin") {
+    const { data: caller } = await context.supabaseAdmin.from("profiles").select("role").eq("id", callerId).single();
+    if (order.user_id !== callerId && !["admin", "manager"].includes(caller?.role ?? "")) {
       return Response.json({ message: "Acesso negado." }, { status: 403 });
     }
 

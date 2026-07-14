@@ -6,7 +6,10 @@ export default {
       return Response.json({ message: "Método não permitido." }, { status: 405 });
     }
 
-    const callerId = context.userClaims?.id;
+    const claims = context.userClaims as { sub?: string; id?: string } | undefined;
+    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    const { data: verifiedAuth } = token ? await context.supabaseAdmin.auth.getUser(token) : { data: { user: null } };
+    const callerId = verifiedAuth.user?.id ?? claims?.sub ?? claims?.id;
     if (!callerId) {
       return Response.json({ message: "Usuário não autenticado." }, { status: 401 });
     }
@@ -21,16 +24,17 @@ export default {
       return Response.json({ message: "Somente administradores podem criar novos acessos." }, { status: 403 });
     }
 
-    const body = await request.json().catch(() => null) as { action?: "create" | "reset_password" | "delete"; userId?: string; email?: string; password?: string } | null;
+    const body = await request.json().catch(() => null) as { action?: "create" | "reset_password" | "delete" | "set_role"; userId?: string; email?: string; password?: string; role?: "admin" | "manager" } | null;
     const action = body?.action ?? "create";
     const email = body?.email?.trim().toLowerCase() ?? "";
     const password = body?.password ?? "";
+    const role = body?.role === "admin" ? "admin" : "manager";
 
     if (action === "reset_password") {
       if (!body?.userId) return Response.json({ message: "Administrador inválido." }, { status: 400 });
       if (password.length < 8) return Response.json({ message: "A nova senha deve ter pelo menos 8 caracteres." }, { status: 400 });
       const { data: target } = await context.supabaseAdmin.from("profiles").select("role,email").eq("id", body.userId).single();
-      if (target?.role !== "admin") return Response.json({ message: "Administrador não encontrado." }, { status: 404 });
+      if (!target || !["admin", "manager"].includes(target.role)) return Response.json({ message: "Membro da equipe não encontrado." }, { status: 404 });
       const { error: updateError } = await context.supabaseAdmin.auth.admin.updateUserById(body.userId, { password });
       if (updateError) return Response.json({ message: updateError.message }, { status: 400 });
       return Response.json({ id: body.userId, email: target.email, updated: true });
@@ -40,12 +44,28 @@ export default {
       if (!body?.userId) return Response.json({ message: "Administrador inválido." }, { status: 400 });
       if (body.userId === callerId) return Response.json({ message: "Você não pode remover o próprio acesso." }, { status: 400 });
       const { data: target } = await context.supabaseAdmin.from("profiles").select("role,email").eq("id", body.userId).single();
-      if (target?.role !== "admin") return Response.json({ message: "Administrador não encontrado." }, { status: 404 });
-      const { count } = await context.supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
-      if ((count ?? 0) <= 1) return Response.json({ message: "É necessário manter pelo menos um administrador." }, { status: 400 });
+      if (!target || !["admin", "manager"].includes(target.role)) return Response.json({ message: "Membro da equipe não encontrado." }, { status: 404 });
+      if (target.role === "admin") {
+        const { count } = await context.supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
+        if ((count ?? 0) <= 1) return Response.json({ message: "É necessário manter pelo menos um administrador geral." }, { status: 400 });
+      }
       const { error: deleteError } = await context.supabaseAdmin.auth.admin.deleteUser(body.userId);
       if (deleteError) return Response.json({ message: deleteError.message }, { status: 400 });
       return Response.json({ id: body.userId, email: target.email, deleted: true });
+    }
+
+    if (action === "set_role") {
+      if (!body?.userId || !body?.role || !["admin", "manager"].includes(body.role)) return Response.json({ message: "Perfil de acesso inválido." }, { status: 400 });
+      if (body.userId === callerId) return Response.json({ message: "Você não pode alterar o próprio perfil de acesso." }, { status: 400 });
+      const { data: target } = await context.supabaseAdmin.from("profiles").select("role,email").eq("id", body.userId).single();
+      if (!target || !["admin", "manager"].includes(target.role)) return Response.json({ message: "Membro da equipe não encontrado." }, { status: 404 });
+      if (target.role === "admin" && body.role === "manager") {
+        const { count } = await context.supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
+        if ((count ?? 0) <= 1) return Response.json({ message: "É necessário manter pelo menos um administrador geral." }, { status: 400 });
+      }
+      const { error: roleError } = await context.supabaseAdmin.from("profiles").update({ role: body.role }).eq("id", body.userId);
+      if (roleError) return Response.json({ message: roleError.message }, { status: 400 });
+      return Response.json({ id: body.userId, email: target.email, role: body.role, updated: true });
     }
 
     if (action !== "create") return Response.json({ message: "Ação inválida." }, { status: 400 });
@@ -69,13 +89,13 @@ export default {
 
     const { error: profileError } = await context.supabaseAdmin
       .from("profiles")
-      .upsert({ id: created.user.id, role: "admin" });
+      .upsert({ id: created.user.id, role, email });
 
     if (profileError) {
       await context.supabaseAdmin.auth.admin.deleteUser(created.user.id);
       return Response.json({ message: "Não foi possível conceder o acesso administrativo." }, { status: 500 });
     }
 
-    return Response.json({ id: created.user.id, email: created.user.email });
+    return Response.json({ id: created.user.id, email: created.user.email, role });
   }),
 };
