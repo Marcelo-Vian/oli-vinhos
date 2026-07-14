@@ -21,7 +21,7 @@ copy .env.example .env.local
 pnpm dev
 ```
 
-Preencha `.env.local` com a URL e a chave pública `anon` do Supabase. Nunca use `service_role` no frontend.
+Preencha `.env.local` com a URL e a chave `publishable` do Supabase. Nunca use `secret` ou `service_role` no frontend.
 
 ## Configurar o Supabase
 
@@ -68,7 +68,7 @@ O catálogo de contingência fica em `app/data/products.ts`. As imagens extraíd
 2. Em **Settings → Pages**, escolha **GitHub Actions** como fonte.
 3. Em **Settings → Secrets and variables → Actions**:
    - crie a variável `VITE_SUPABASE_URL`;
-   - crie o secret `VITE_SUPABASE_ANON_KEY` (é uma chave pública, mas o secret evita exposição nos logs).
+   - crie o secret `VITE_SUPABASE_PUBLISHABLE_KEY` (é uma chave pública, mas o secret evita exposição nos logs).
 4. Faça push na `main` ou execute manualmente o workflow **Build and deploy OLI Vinhos**.
 
 O workflow instala as dependências, executa o build estático com `pnpm build:pages` e publica `dist-pages`. O caminho-base do repositório é calculado pelo próprio workflow, incluindo imagens e `/admin/`. Para novas versões, altere o projeto, confirme com `pnpm build` e `pnpm build:pages`, faça commit e push; o deploy é automático.

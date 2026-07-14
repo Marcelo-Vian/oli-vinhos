@@ -63,7 +63,7 @@ export default function AdminApp() {
     return search.includes(query.toLowerCase()) && statusMatch;
   }), [products, query, status]);
 
-  if (!hasSupabaseConfig) return <AdminGate><CircleAlert size={34}/><h1>Conecte o Supabase</h1><p>A área administrativa está pronta, mas precisa das variáveis públicas do seu projeto Supabase para autenticar e carregar os produtos.</p><code>VITE_SUPABASE_URL<br/>VITE_SUPABASE_ANON_KEY</code><a href={sitePath("/")}>Voltar à loja</a></AdminGate>;
+  if (!hasSupabaseConfig) return <AdminGate><CircleAlert size={34}/><h1>Conecte o Supabase</h1><p>A área administrativa está pronta, mas precisa das variáveis públicas do seu projeto Supabase para autenticar e carregar os produtos.</p><code>VITE_SUPABASE_URL<br/>VITE_SUPABASE_PUBLISHABLE_KEY</code><a href={sitePath("/")}>Voltar à loja</a></AdminGate>;
   if (loading && !session) return <AdminGate><RefreshCw className="spin"/><p>Carregando área segura…</p></AdminGate>;
   if (!session) return <AdminGate><div className="admin-logo"><Wine/> OLI <span>ADMIN</span></div><h1>Bem-vindo de volta</h1><p>Entre com o e-mail e a senha cadastrados no Supabase Auth.</p><form className="login-form" onSubmit={login}><label>E-mail<input type="email" name="email" required autoComplete="email"/></label><label>Senha<input type="password" name="password" required autoComplete="current-password"/></label>{message && <AdminMessage message={message}/>}<button className="primary-button wide" type="submit">Entrar</button></form><a href={sitePath("/")}><ArrowLeft size={15}/> Voltar à loja</a></AdminGate>;
 

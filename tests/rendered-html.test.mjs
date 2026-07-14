@@ -27,7 +27,8 @@ test("mantém dados de contato centralizados e sem segredos", async () => {
   ]);
   assert.match(config, /5511968669167/);
   assert.match(config, /olivinhos\.comercial@gmail\.com/);
-  assert.match(env, /VITE_SUPABASE_ANON_KEY/);
+  assert.match(env, /VITE_SUPABASE_PUBLISHABLE_KEY/);
   assert.doesNotMatch(env + products, /eyJ[A-Za-z0-9_-]{20,}/);
+  assert.doesNotMatch(env + products, /sb_secret_[A-Za-z0-9_-]+/);
   assert.equal((products.match(/product\("oli-/g) ?? []).length, 16);
 });
