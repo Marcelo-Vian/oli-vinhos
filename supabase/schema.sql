@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  role text not null default 'customer' check (role in ('customer','manager','admin')),
+  role text not null default 'customer' check (role in ('customer','manager','admin','master')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -57,12 +57,12 @@ create trigger profiles_set_updated_at before update on public.profiles for each
 
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists(select 1 from public.profiles where id = auth.uid() and role = 'admin');
+  select exists(select 1 from public.profiles where id = auth.uid() and role in ('master','admin'));
 $$;
 
 create or replace function public.is_staff()
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists(select 1 from public.profiles where id = auth.uid() and role in ('admin','manager'));
+  select exists(select 1 from public.profiles where id = auth.uid() and role in ('master','admin','manager'));
 $$;
 
 alter table public.profiles enable row level security;

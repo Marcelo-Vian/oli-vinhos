@@ -32,7 +32,7 @@ export type CartItem = { product: WineProduct; quantity: number };
 
 export type CustomerProfile = {
   id: string;
-  role: "customer" | "manager" | "admin";
+  role: "customer" | "manager" | "admin" | "master";
   email: string | null;
   full_name: string | null;
   phone: string | null;
