@@ -69,9 +69,29 @@ O catálogo de contingência fica em `app/data/products.ts`. As imagens extraíd
 3. Em **Settings → Secrets and variables → Actions**:
    - crie a variável `VITE_SUPABASE_URL`;
    - crie o secret `VITE_SUPABASE_PUBLISHABLE_KEY` (é uma chave pública, mas o secret evita exposição nos logs).
-4. Faça push na `main` ou execute manualmente o workflow **Build and deploy OLI Vinhos**.
+4. Execute manualmente o workflow **Publicar OLI Vinhos em producao** e informe
+   uma tag de versao que aponte para o estado atual da branch `main`.
 
-O workflow instala as dependências, executa o build estático com `pnpm build:pages` e publica `dist-pages`. O caminho-base do repositório é calculado pelo próprio workflow, incluindo imagens e `/admin/`. Para novas versões, altere o projeto, confirme com `pnpm build` e `pnpm build:pages`, faça commit e push; o deploy é automático.
+O workflow instala as dependências, executa lint, testes e o build estático antes
+de publicar `dist-pages`. A produção não é mais publicada automaticamente por
+um push. O caminho-base do repositório é calculado pelo próprio workflow,
+incluindo imagens e `/admin/`.
+
+## Desenvolvimento, homologação e versões
+
+- `feature/*` e `fix/*`: trabalho em andamento;
+- `develop`: homologação privada, com banco separado;
+- `main`: versão aprovada para produção.
+
+Pull Requests para `main` executam lint, testes e os dois builds. Cada publicação
+de produção deve ter uma tag (`v1.1.0`, `v1.1.1` etc.) e aprovação manual. O
+procedimento completo e os testes obrigatórios estão em
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
+
+O repositório pode continuar público enquanto a produção estiver no GitHub
+Pages gratuito. Senhas, tokens, `service_role`, chaves de pagamento e arquivos
+`.env` nunca devem ser versionados. Se a hospedagem pública for migrada, a
+visibilidade do repositório poderá ser alterada sem mudar esse processo.
 
 ## Testes
 
