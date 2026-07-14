@@ -82,6 +82,8 @@ create policy "Users read own profile" on public.profiles for select to authenti
 drop policy if exists "Admins read profiles" on public.profiles;
 create policy "Admins read profiles" on public.profiles for select to authenticated using (public.is_staff());
 
+grant select, insert, update, delete on table public.profiles to service_role;
+
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('product-images','product-images',true,5242880,array['image/jpeg','image/png','image/webp'])
 on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
