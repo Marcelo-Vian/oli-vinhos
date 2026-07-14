@@ -61,10 +61,13 @@ export default function StoreApp() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("oli-vinhos-cart");
-      if (saved) setCart(JSON.parse(saved));
-    } catch { /* keep an empty cart */ }
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = localStorage.getItem("oli-vinhos-cart");
+        if (saved) setCart(JSON.parse(saved));
+      } catch { /* keep an empty cart */ }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {

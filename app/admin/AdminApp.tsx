@@ -14,14 +14,14 @@ const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 export default function AdminApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [products, setProducts] = useState<WineProduct[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(supabase));
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [editing, setEditing] = useState<Partial<WineProduct> | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    if (!supabase) { setLoading(false); return; }
+    if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
