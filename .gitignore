@@ -41,6 +41,7 @@ dev.err.log
 next-env.d.ts
 /dist/
 /dist-pages/
+/supabase/.temp/
 /.wrangler/
 /outputs/
 /work/
