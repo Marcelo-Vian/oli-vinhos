@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
   ArrowRight,
   Check,
@@ -9,6 +10,10 @@ import {
   Filter,
   Grape,
   Heart,
+  History,
+  KeyRound,
+  LoaderCircle,
+  LogOut,
   Mail,
   MapPin,
   Menu,
@@ -17,19 +22,22 @@ import {
   Search,
   ShoppingBag,
   Trash2,
+  UserRound,
   Wine,
   X,
 } from "lucide-react";
 import { CATALOG_PRODUCTS } from "../data/products";
 import { STORE_CONFIG } from "../data/store-config";
-import type { CartItem, WineProduct } from "../data/types";
+import type { CartItem, CustomerOrder, CustomerProfile, OrderStatus, WineProduct } from "../data/types";
 import { hasSupabaseConfig, supabase } from "../lib/supabase";
 import { assetUrl, sitePath } from "../lib/paths";
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 const norm = (value: string | null | undefined) => (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const currentPrice = (p: WineProduct) => p.promotional_price ?? p.normal_price;
 const unique = (values: (string | null)[]) => [...new Set(values.filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+const orderStatusLabel: Record<OrderStatus, string> = { pending: "Pendente", confirmed: "Confirmado", preparing: "Em separação", ready: "Pronto para retirada", delivered: "Entregue", canceled: "Cancelado" };
 
 type Filters = {
   country: string;
@@ -59,6 +67,17 @@ export default function StoreApp() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [formError, setFormError] = useState("");
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [checkoutAfterLogin, setCheckoutAfterLogin] = useState(false);
+  const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const [completedOrder, setCompletedOrder] = useState<CustomerOrder | null>(null);
+  const [completedMessage, setCompletedMessage] = useState("");
+  const [emailNotice, setEmailNotice] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -88,6 +107,22 @@ export default function StoreApp() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!session) { setProfile(null); setOrders([]); return; }
+      loadAccount();
+      if (checkoutAfterLogin) { setAuthOpen(false); setCheckoutOpen(true); setCheckoutAfterLogin(false); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [session, checkoutAfterLogin]);
 
   const options = useMemo(() => ({
     countries: unique(products.map((p) => p.country)),
@@ -144,8 +179,42 @@ export default function StoreApp() {
     }));
   }
 
-  function sendOrder(event: React.FormEvent<HTMLFormElement>) {
+  async function loadAccount() {
+    if (!supabase || !session) return;
+    setAccountLoading(true);
+    const [profileResult, ordersResult] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", session.user.id).single(),
+      supabase.from("orders").select("*, order_items(*), order_status_history(*)").order("created_at", { ascending: false }),
+    ]);
+    if (profileResult.data) setProfile(profileResult.data as CustomerProfile);
+    if (ordersResult.data) {
+      const nextOrders = (ordersResult.data as CustomerOrder[]).map((order) => ({
+        ...order,
+        order_items: order.order_items ?? [],
+        order_status_history: [...(order.order_status_history ?? [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+      }));
+      setOrders(nextOrders);
+    }
+    setAccountLoading(false);
+  }
+
+  async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!supabase || !session) return; const data = new FormData(event.currentTarget);
+    const fullName = String(data.get("full_name") ?? "").trim(); const phone = String(data.get("phone") ?? "").trim();
+    if (!fullName || !phone) return;
+    const { error } = await supabase.from("profiles").update({ full_name: fullName, phone }).eq("id", session.user.id);
+    if (!error) setProfile((current) => current ? { ...current, full_name: fullName, phone } : current);
+  }
+
+  function openCheckout() {
+    setCartOpen(false);
+    if (!session) { setCheckoutAfterLogin(true); setAuthOpen(true); return; }
+    setCheckoutOpen(true);
+  }
+
+  async function sendOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!supabase || !session) { setCheckoutOpen(false); setCheckoutAfterLogin(true); setAuthOpen(true); return; }
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const phone = String(data.get("phone") ?? "").trim();
@@ -155,14 +224,32 @@ export default function StoreApp() {
       setFormError("Preencha nome, telefone, data e horário aproximado.");
       return;
     }
-    setFormError("");
-    const lines = ["Olá! Gostaria de solicitar o seguinte pedido para retirada:", ""];
+    setFormError(""); setOrderSubmitting(true); setEmailNotice("");
+    const whatsappWindow = window.open("about:blank", "_blank");
+    const { data: created, error } = await supabase.rpc("create_order", {
+      p_customer_name: name,
+      p_customer_phone: phone,
+      p_pickup_date: date,
+      p_pickup_time: time,
+      p_notes: String(data.get("notes") ?? ""),
+      p_items: cart.map((item) => ({ product_id: item.product.id, quantity: item.quantity })),
+    });
+    if (error || !created) {
+      whatsappWindow?.close(); setOrderSubmitting(false); setFormError(error?.message ?? "Não foi possível registrar o pedido."); return;
+    }
+    const orderRecord = created as CustomerOrder;
+    const lines = [`Olá! Acabei de registrar o pedido OLI #${orderRecord.order_number}:`, ""];
     cart.forEach((item, index) => {
       const unit = currentPrice(item.product);
       lines.push(`${index + 1}. ${item.product.name}`, `Quantidade: ${item.quantity}`, `Valor unitário: ${money.format(unit)}`, `Subtotal: ${money.format(unit * item.quantity)}`, "");
     });
-    lines.push(`Total do pedido: ${money.format(total)}`, "", `Cliente: ${name}`, `Telefone: ${phone}`, `Data desejada para retirada: ${date}`, `Horário aproximado: ${time}`, `Observações: ${String(data.get("notes") ?? "") || "Sem observações"}`, "", "Estou ciente de que o pedido, o estoque e o horário de retirada dependem da confirmação da loja.");
-    window.open(`https://wa.me/${STORE_CONFIG.whatsappInternational}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank", "noopener,noreferrer");
+    lines.push(`Total do pedido: ${money.format(Number(orderRecord.total))}`, "", `Cliente: ${name}`, `E-mail: ${session.user.email}`, `Telefone: ${phone}`, `Data desejada para retirada: ${date}`, `Horário aproximado: ${time}`, `Observações: ${String(data.get("notes") ?? "") || "Sem observações"}`, "", "O pedido, o estoque e o horário de retirada aguardam confirmação da loja.");
+    const message = lines.join("\n");
+    if (whatsappWindow) whatsappWindow.location.href = `https://wa.me/${STORE_CONFIG.whatsappInternational}?text=${encodeURIComponent(message)}`;
+    const emailResult = await supabase.functions.invoke("send-order-email", { body: { orderId: orderRecord.id } });
+    setEmailNotice(emailResult.data?.sent ? "O resumo também foi enviado por e-mail." : "O pedido foi salvo. Use o botão de e-mail para enviar uma cópia enquanto o envio automático é configurado.");
+    setCompletedOrder({ ...orderRecord, order_items: [], order_status_history: [] });
+    setCompletedMessage(message); setCart([]); setCheckoutOpen(false); setOrderSubmitting(false); await loadAccount();
   }
 
   return (
@@ -173,6 +260,7 @@ export default function StoreApp() {
         <nav aria-label="Navegação principal"><a href="#catalogo">Catálogo</a><a href="#como-funciona">Como funciona</a><a href="#contato">Contato</a></nav>
         <div className="header-actions">
           <button className="icon-button mobile-menu" aria-label="Abrir menu"><Menu size={20}/></button>
+          <button className="account-button" onClick={() => session ? setAccountOpen(true) : setAuthOpen(true)}><UserRound size={18}/><span>{session ? "Minha conta" : "Entrar"}</span></button>
           <button className="cart-button" onClick={() => setCartOpen(true)}><ShoppingBag size={19}/><span>Carrinho</span>{cartCount > 0 && <b>{cartCount}</b>}</button>
         </div>
       </header>
@@ -183,7 +271,7 @@ export default function StoreApp() {
             <p className="eyebrow">Catálogo 2026 • seleção especial</p>
             <h1>Vinhos para<br/><em>bons encontros.</em></h1>
             <p className="hero-text">Rótulos escolhidos para transformar refeições, conversas e pequenas celebrações em memórias.</p>
-            <div className="hero-cta"><a href="#catalogo" className="primary-button">Explorar catálogo <ArrowRight size={18}/></a><span><Check size={16}/> Pedido direto pelo WhatsApp</span></div>
+            <div className="hero-cta"><a href="#catalogo" className="primary-button">Explorar catálogo <ArrowRight size={18}/></a><span><Check size={16}/> Pedido salvo e acompanhado online</span></div>
           </div>
           <div className="hero-art" aria-label="Garrafa de vinho em destaque">
             <div className="year-stamp">20<br/>26</div>
@@ -220,7 +308,7 @@ export default function StoreApp() {
 
         <section className="pickup-section" id="como-funciona">
           <div className="pickup-intro"><p className="eyebrow">Simples e pessoal</p><h2>Seu vinho, separado<br/>com cuidado.</h2><p>Pedidos disponíveis somente para retirada no local.</p></div>
-          <div className="steps"><div><b>01</b><h3>Escolha</h3><p>Explore o catálogo e adicione seus rótulos ao carrinho.</p></div><div><b>02</b><h3>Envie</h3><p>Informe os dados de retirada e envie o pedido pelo WhatsApp.</p></div><div><b>03</b><h3>Confirme</h3><p>Aguarde a confirmação de estoque e horário antes de retirar.</p></div></div>
+          <div className="steps"><div><b>01</b><h3>Escolha</h3><p>Explore o catálogo e adicione seus rótulos ao carrinho.</p></div><div><b>02</b><h3>Registre</h3><p>Entre na sua conta, escolha a retirada e envie o resumo pelo WhatsApp.</p></div><div><b>03</b><h3>Acompanhe</h3><p>Consulte o histórico e o andamento do pedido em Minha conta.</p></div></div>
           <div className="pickup-alert"><CircleAlert size={21}/><p><strong>Atenção</strong> Preços, estoque e horário de retirada dependem de confirmação pelo WhatsApp. Não realizamos entrega.</p></div>
         </section>
 
@@ -231,9 +319,12 @@ export default function StoreApp() {
       <a className="whatsapp-float" href={`https://wa.me/${STORE_CONFIG.whatsappInternational}`} target="_blank" rel="noreferrer" aria-label="Falar com a OLI Vinhos pelo WhatsApp">WA</a>
 
       {filterOpen && <div className="drawer-overlay" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setFilterOpen(false)}><aside className="mobile-filter drawer"><div className="drawer-head"><h2>Filtros</h2><button onClick={() => setFilterOpen(false)} aria-label="Fechar filtros"><X/></button></div><FilterPanel options={options} filters={filters} setFilters={setFilters} mobile/><button className="primary-button wide" onClick={() => setFilterOpen(false)}>Ver {visible.length} vinhos</button></aside></div>}
-      {cartOpen && <CartDrawer cart={cart} total={total} onClose={() => setCartOpen(false)} onQuantity={setQuantity} onClear={() => setCart([])} onCheckout={() => setCheckoutOpen(true)}/>}      
+      {cartOpen && <CartDrawer cart={cart} total={total} onClose={() => setCartOpen(false)} onQuantity={setQuantity} onClear={() => setCart([])} onCheckout={openCheckout}/>}
       {detail && <ProductModal product={detail} quantity={detailQty} setQuantity={setDetailQty} onClose={() => setDetail(null)} onAdd={() => { addToCart(detail, detailQty); setDetail(null); }}/>}      
-      {checkoutOpen && <CheckoutModal total={total} cart={cart} error={formError} onClose={() => setCheckoutOpen(false)} onSubmit={sendOrder}/>}      
+      {checkoutOpen && <CheckoutModal total={total} cart={cart} error={formError} profile={profile} email={session?.user.email ?? ""} submitting={orderSubmitting} onClose={() => setCheckoutOpen(false)} onSubmit={sendOrder}/>}
+      {authOpen && <CustomerAuthModal onClose={() => { setAuthOpen(false); setCheckoutAfterLogin(false); }}/>}
+      {accountOpen && session && <CustomerAccountModal profile={profile} orders={orders} loading={accountLoading} onRefresh={loadAccount} onSaveProfile={saveProfile} onClose={() => setAccountOpen(false)} onSignOut={async () => { await supabase?.auth.signOut(); setAccountOpen(false); }}/>}
+      {completedOrder && <OrderSuccessModal order={completedOrder} message={completedMessage} emailNotice={emailNotice} onClose={() => setCompletedOrder(null)} onAccount={() => { setCompletedOrder(null); setAccountOpen(true); }}/>}
     </div>
   );
 }
@@ -267,6 +358,45 @@ function ProductModal({ product, quantity, setQuantity, onClose, onAdd }: { prod
   return <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="product-modal"><button className="modal-close" onClick={onClose} aria-label="Fechar detalhes"><X/></button><div className="modal-media"><img src={assetUrl(product.image_url)} alt={`Garrafa de ${product.name}`}/></div><div className="modal-content"><p className="eyebrow">{product.country} • {product.type}</p><h2>{product.name}</h2><p className="modal-price">{product.promotional_price !== null && <del>{money.format(product.normal_price)}</del>}<strong>{money.format(currentPrice(product))}</strong></p>{product.description && <p className="modal-description">{product.description}</p>}<dl>{fields.map(([k,v]) => <div key={String(k)}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>{product.pairing && <div className="pairing"><Grape/><div><strong>Harmonização</strong><p>{product.pairing}</p></div></div>}<div className="modal-buy"><div className="quantity"><button onClick={() => setQuantity(Math.max(1, quantity - 1))}><Minus/></button><span>{quantity}</span><button onClick={() => setQuantity(Math.min(product.quantity_available ?? 99, quantity + 1))}><Plus/></button></div><button className="primary-button" onClick={onAdd} disabled={product.quantity_available === 0}>Adicionar • {money.format(currentPrice(product) * quantity)}</button></div><small className="stock-copy">{product.quantity_available === null ? "Disponibilidade confirmada pela loja no WhatsApp." : `${product.quantity_available} unidade(s) disponível(is).`}</small></div></div></div>;
 }
 
-function CheckoutModal({ total, cart, error, onClose, onSubmit }: { total: number; cart: CartItem[]; error: string; onClose: () => void; onSubmit: (e: React.FormEvent<HTMLFormElement>) => void }) {
-  return <div className="modal-overlay"><div className="checkout-modal"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X/></button><p className="eyebrow">Última etapa</p><h2>Dados para retirada</h2><p>Seu pedido será enviado à OLI Vinhos pelo WhatsApp.</p><form onSubmit={onSubmit}><div className="form-row"><label>Nome completo *<input name="name" required autoFocus/></label><label>Telefone *<input name="phone" type="tel" required/></label></div><div className="form-row"><label>Data desejada *<input name="date" type="date" required min={new Date().toISOString().slice(0,10)}/></label><label>Horário aproximado *<input name="time" type="time" required/></label></div><label>Observações<textarea name="notes" rows={3} placeholder="Alguma preferência ou observação?"/></label>{error && <div className="form-error"><CircleAlert size={16}/>{error}</div>}<div className="order-preview"><span>{cart.reduce((s,i) => s+i.quantity,0)} item(ns)</span><strong>{money.format(total)}</strong></div><button className="primary-button wide" type="submit">Enviar pedido pelo WhatsApp <ArrowRight size={18}/></button><small>Ao continuar, você reconhece que pedido, estoque e horário dependem da confirmação da loja.</small></form></div></div>;
+function CheckoutModal({ total, cart, error, profile, email, submitting, onClose, onSubmit }: { total: number; cart: CartItem[]; error: string; profile: CustomerProfile | null; email: string; submitting: boolean; onClose: () => void; onSubmit: (e: React.FormEvent<HTMLFormElement>) => void }) {
+  return <div className="modal-overlay"><div className="checkout-modal"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X/></button><p className="eyebrow">Última etapa</p><h2>Dados para retirada</h2><p>O pedido ficará salvo na sua conta e o resumo será preparado para WhatsApp e e-mail.</p><form onSubmit={onSubmit}><div className="form-row"><label>Nome completo *<input name="name" required autoFocus defaultValue={profile?.full_name ?? ""}/></label><label>Telefone *<input name="phone" type="tel" required defaultValue={profile?.phone ?? ""}/></label></div><label>E-mail da conta<input value={email} readOnly/></label><div className="form-row"><label>Data desejada *<input name="date" type="date" required min={new Date().toISOString().slice(0,10)}/></label><label>Horário aproximado *<input name="time" type="time" required/></label></div><label>Observações<textarea name="notes" rows={3} placeholder="Alguma preferência ou observação?"/></label>{error && <div className="form-error"><CircleAlert size={16}/>{error}</div>}<div className="order-preview"><span>{cart.reduce((s,i) => s+i.quantity,0)} item(ns)</span><strong>{money.format(total)}</strong></div><button className="primary-button wide" type="submit" disabled={submitting}>{submitting ? <><LoaderCircle className="spin"/> Registrando pedido…</> : <>Registrar e enviar pedido <ArrowRight size={18}/></>}</button><small>Ao continuar, você reconhece que pedido, estoque e horário dependem da confirmação da loja.</small></form></div></div>;
+}
+
+function CustomerAuthModal({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!supabase) return; const data = new FormData(event.currentTarget); setBusy(true); setMessage("");
+    const email = String(data.get("email") ?? ""); const password = String(data.get("password") ?? "");
+    if (mode === "login") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setMessage("E-mail ou senha inválidos."); else onClose();
+    } else {
+      if (password.length < 8) { setMessage("A senha deve ter pelo menos 8 caracteres."); setBusy(false); return; }
+      const confirmation = String(data.get("confirmation") ?? "");
+      if (password !== confirmation) { setMessage("A confirmação da senha não confere."); setBusy(false); return; }
+      const { data: result, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}${sitePath("/")}`, data: { full_name: String(data.get("full_name") ?? ""), phone: String(data.get("phone") ?? "") } } });
+      if (error) setMessage(error.message); else if (result.session) onClose(); else setMessage("Cadastro recebido. Confira seu e-mail para confirmar a conta e depois faça login.");
+    }
+    setBusy(false);
+  }
+  return <div className="modal-overlay"><div className="auth-modal"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X/></button><div className="auth-brand"><Wine/> OLI <span>CLIENTES</span></div><p className="eyebrow">{mode === "login" ? "Sua conta" : "Novo cliente"}</p><h2>{mode === "login" ? "Entrar" : "Criar cadastro"}</h2><p>{mode === "login" ? "Acompanhe pedidos e consulte seu histórico." : "Cadastre-se para registrar e acompanhar seus pedidos."}</p><form onSubmit={submit}>{mode === "signup" && <><label>Nome completo<input name="full_name" required/></label><label>Telefone<input name="phone" type="tel" required/></label></>}<label>E-mail<input name="email" type="email" required autoComplete="email"/></label><label>Senha<input name="password" type="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"}/></label>{mode === "signup" && <label>Confirmar senha<input name="confirmation" type="password" required minLength={8} autoComplete="new-password"/></label>}{message && <div className="form-error"><CircleAlert size={16}/>{message}</div>}<button className="primary-button wide" disabled={busy}>{busy ? "Aguarde…" : mode === "login" ? "Entrar" : "Criar conta"}</button></form><button className="auth-switch" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(""); }}>{mode === "login" ? "Ainda não tenho cadastro" : "Já tenho cadastro"}</button></div></div>;
+}
+
+function CustomerAccountModal({ profile, orders, loading, onRefresh, onSaveProfile, onClose, onSignOut }: { profile: CustomerProfile | null; orders: CustomerOrder[]; loading: boolean; onRefresh: () => void; onSaveProfile: (e: React.FormEvent<HTMLFormElement>) => void; onClose: () => void; onSignOut: () => void }) {
+  const [tab, setTab] = useState<"orders" | "profile">("orders");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!supabase) return; const data = new FormData(event.currentTarget); const password = String(data.get("password") ?? "");
+    if (password.length < 8) { setPasswordMessage("Use pelo menos 8 caracteres."); return; }
+    const { error } = await supabase.auth.updateUser({ password }); setPasswordMessage(error ? "Não foi possível alterar a senha." : "Senha alterada com sucesso.");
+  }
+  return <div className="drawer-overlay"><aside className="account-drawer drawer"><div className="drawer-head"><div><p>ÁREA DO CLIENTE</p><h2>Minha conta</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="account-tabs"><button className={tab === "orders" ? "active" : ""} onClick={() => setTab("orders")}><History/> Pedidos</button><button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")}><UserRound/> Meus dados</button></div>{tab === "orders" ? <div className="account-content"><div className="account-title"><h3>Histórico de pedidos</h3><button onClick={onRefresh}><LoaderCircle className={loading ? "spin" : ""}/></button></div>{loading ? <p className="account-empty">Carregando pedidos…</p> : orders.length === 0 ? <div className="account-empty"><ShoppingBag/><h3>Nenhum pedido ainda</h3><p>Seus próximos pedidos aparecerão aqui.</p></div> : orders.map((order) => <article className="customer-order" key={order.id}><div className="customer-order-head"><div><small>Pedido</small><strong>#{order.order_number}</strong></div><span className={`order-status ${order.status}`}>{orderStatusLabel[order.status]}</span></div><p>{dateTime.format(new Date(order.created_at))} • Retirada {new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</p><div className="customer-order-items">{order.order_items.map((item) => <div key={item.id}><span>{item.quantity}× {item.product_name}</span><b>{money.format(Number(item.line_total))}</b></div>)}</div><div className="customer-order-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div><div className="status-timeline">{order.order_status_history.map((history) => <div key={history.id}><i/><span><b>{orderStatusLabel[history.status]}</b><small>{dateTime.format(new Date(history.created_at))}{history.note ? ` • ${history.note}` : ""}</small></span></div>)}</div></article>)}</div> : <div className="account-content"><form className="account-form" onSubmit={onSaveProfile}><h3>Dados pessoais</h3><label>Nome completo<input name="full_name" defaultValue={profile?.full_name ?? ""} required/></label><label>E-mail<input value={profile?.email ?? ""} readOnly/></label><label>Telefone<input name="phone" type="tel" defaultValue={profile?.phone ?? ""} required/></label><button className="primary-button" type="submit">Salvar dados</button></form><form className="account-form" onSubmit={changePassword}><h3><KeyRound/> Alterar senha</h3><label>Nova senha<input name="password" type="password" minLength={8} required autoComplete="new-password"/></label>{passwordMessage && <small>{passwordMessage}</small>}<button className="secondary-button" type="submit">Atualizar senha</button></form></div>}<div className="account-footer"><button onClick={onSignOut}><LogOut/> Sair da conta</button></div></aside></div>;
+}
+
+function OrderSuccessModal({ order, message, emailNotice, onClose, onAccount }: { order: CustomerOrder; message: string; emailNotice: string; onClose: () => void; onAccount: () => void }) {
+  const whatsapp = `https://wa.me/${STORE_CONFIG.whatsappInternational}?text=${encodeURIComponent(message)}`;
+  const email = `mailto:${STORE_CONFIG.email}?subject=${encodeURIComponent(`Pedido OLI #${order.order_number}`)}&body=${encodeURIComponent(message)}`;
+  return <div className="modal-overlay"><div className="order-success"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X/></button><div className="success-icon"><Check/></div><p className="eyebrow">Pedido registrado</p><h2>Pedido #{order.order_number}</h2><p>Recebemos seu pedido no valor de <strong>{money.format(Number(order.total))}</strong>. Ele está pendente e aguardando confirmação da OLI Vinhos.</p><small>{emailNotice}</small><div className="order-send-actions"><a className="primary-button" href={whatsapp} target="_blank" rel="noreferrer">Enviar pelo WhatsApp</a><a className="secondary-button" href={email}>Enviar por e-mail</a></div><button className="account-history-link" onClick={onAccount}>Acompanhar em Minha conta <ArrowRight/></button></div></div>;
 }

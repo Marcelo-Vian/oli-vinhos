@@ -1,0 +1,35 @@
+.account-button{display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--wine);padding:11px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.auth-modal,.order-success{width:min(520px,96vw);background:var(--paper);padding:46px 50px;position:relative;max-height:92vh;overflow:auto}
+.auth-modal h2,.order-success h2{font-family:var(--serif);font-size:40px;font-weight:500;margin:0}
+.auth-modal>p:not(.eyebrow),.order-success>p{color:var(--muted);line-height:1.6}
+.auth-brand{font-family:var(--serif);font-size:25px;color:var(--wine);display:flex;align-items:center;gap:8px;margin-bottom:30px}
+.auth-brand span{font-family:var(--sans);font-size:8px;letter-spacing:.18em;color:var(--gold)}
+.auth-modal form,.account-form{display:grid;gap:14px}
+.auth-modal label,.account-form label{font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.auth-modal input,.account-form input{display:block;width:100%;border:1px solid var(--line);background:white;padding:11px;margin-top:6px;text-transform:none;letter-spacing:0}
+.auth-switch{width:100%;border:0;background:none;color:var(--wine);text-decoration:underline;margin-top:18px;font-size:12px}
+.account-drawer{width:min(590px,100%)}
+.account-tabs{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+.account-tabs button{border:0;background:white;padding:15px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--muted)}
+.account-tabs button.active{color:var(--wine);border-bottom:2px solid var(--wine)}
+.account-tabs svg{width:17px}
+.account-content{padding:24px 28px;overflow:auto;flex:1}
+.account-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.account-title h3,.account-form h3{font-family:var(--serif);font-size:22px;font-weight:500;margin:0}
+.account-title button{border:0;background:none}.account-title svg{width:17px}
+.account-empty{text-align:center;color:var(--muted);padding:40px 10px}.account-empty svg{width:38px;height:38px}
+.customer-order{border:1px solid var(--line);background:white;padding:18px;margin-bottom:14px}
+.customer-order-head,.customer-order-total{display:flex;align-items:center;justify-content:space-between}
+.customer-order-head>div{display:flex;flex-direction:column}.customer-order-head small{font-size:9px;color:var(--muted)}
+.customer-order-head strong{font-family:var(--serif);font-size:22px;color:var(--wine)}
+.customer-order>p{font-size:10px;color:var(--muted)}
+.order-status{font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:6px 9px;border-radius:20px;background:#eee7df}
+.order-status.pending{background:#f5ead2;color:#825f1d}.order-status.confirmed,.order-status.preparing{background:#e7ebf7;color:#304f87}.order-status.ready{background:#e0f0e6;color:#27613d}.order-status.delivered{background:#dceee2;color:#25583a}.order-status.canceled{background:#f4e0e4;color:#8a3040}
+.customer-order-items{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:9px 0}.customer-order-items>div{display:flex;justify-content:space-between;font-size:11px;padding:4px 0}
+.customer-order-total{padding:12px 0}.customer-order-total strong{font-family:var(--serif);font-size:20px;color:var(--wine)}
+.status-timeline{border-top:1px solid var(--line);padding-top:10px}.status-timeline>div{display:flex;gap:9px;margin:7px 0}.status-timeline i{width:7px;height:7px;border-radius:50%;background:var(--gold);margin-top:4px}.status-timeline span{display:flex;flex-direction:column}.status-timeline b{font-size:10px}.status-timeline small{font-size:9px;color:var(--muted);margin-top:2px}
+.account-form{background:white;border:1px solid var(--line);padding:20px;margin-bottom:18px}.account-form h3{display:flex;align-items:center;gap:8px}.account-form h3 svg{width:18px}.account-form>small{color:var(--green)}
+.account-footer{padding:14px 28px;border-top:1px solid var(--line)}.account-footer button{border:0;background:none;color:var(--wine);display:flex;align-items:center;gap:7px}
+.success-icon{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:#dceee2;color:var(--green);margin-bottom:24px}.order-success>small{display:block;background:#f2ece4;padding:12px;color:var(--muted);line-height:1.5}
+.order-send-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:22px 0}.order-send-actions .secondary-button{text-align:center;display:flex;align-items:center;justify-content:center}.account-history-link{border:0;background:none;color:var(--wine);display:flex;align-items:center;gap:8px;margin:auto}.account-history-link svg{width:16px}
+@media(max-width:760px){.account-button{padding:9px}.account-button span{display:none}.auth-modal,.order-success{padding:38px 22px}.order-send-actions{grid-template-columns:1fr}}
