@@ -1,5 +1,4 @@
 .account-button{display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--wine);padding:11px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-.review-order-action{width:100%;border:0;background:var(--wine);color:white;padding:12px 14px;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;cursor:pointer}.review-order-action:hover{background:#521122}.review-order-action svg{width:15px}
 .auth-modal,.order-success{width:min(520px,96vw);background:var(--paper);padding:46px 50px;position:relative;max-height:92vh;overflow:auto}
 .auth-modal h2,.order-success h2{font-family:var(--serif);font-size:40px;font-weight:500;margin:0}
 .auth-modal>p:not(.eyebrow),.order-success>p{color:var(--muted);line-height:1.6}

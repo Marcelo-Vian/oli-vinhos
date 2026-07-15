@@ -77,6 +77,7 @@ export type PaymentStatusHistory = {
 
 export type ProductReview = {
   id: string;
+  order_item_id: string | null;
   product_id: string;
   user_id: string;
   customer_name: string;

@@ -34,7 +34,7 @@ test("mantém dados de contato centralizados e sem segredos", async () => {
 });
 
 test("workflow por e-mail exige confirmação e guarda somente o hash do token", async () => {
-  const [actionFunction, notificationFunction, adminApp, storeApp, migration, simplifiedMigration, reviewMigration, shared] = await Promise.all([
+  const [actionFunction, notificationFunction, adminApp, storeApp, migration, simplifiedMigration, reviewMigration, itemReviewMigration, shared] = await Promise.all([
     readFile(new URL("../supabase/functions/order-action/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/functions/notify-order-customer/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/AdminApp.tsx", import.meta.url), "utf8"),
@@ -42,6 +42,7 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
     readFile(new URL("../supabase/migrations/20260715170000_order_email_workflow.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715190000_simplify_order_workflow.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715100000_payments_and_reviews.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260715195000_reviews_by_order_item.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/functions/_shared/order-workflow.ts", import.meta.url), "utf8"),
   ]);
   assert.match(actionFunction, /request\.method === "GET"/);
@@ -64,11 +65,16 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.doesNotMatch(adminApp, /Object\.keys\(orderStatusLabel\)/);
   assert.doesNotMatch(storeApp, /Enviar cópia por e-mail/);
   assert.match(storeApp, /URLSearchParams\(window\.location\.search\)\.get\("conta"\) === "pedidos"/);
-  assert.match(storeApp, /Avaliar produtos deste pedido/);
   assert.match(reviewMigration, /orders\.status = 'delivered'/);
   assert.match(reviewMigration, /order_items\.product_id = p_product_id/);
   assert.match(simplifiedMigration, /v_token\.action in \('confirm_order', 'preparing'\)/);
   assert.match(simplifiedMigration, /p_customer_message text default null/);
+  assert.match(itemReviewMigration, /p_order_item_id uuid/);
+  assert.match(itemReviewMigration, /item\.id = p_order_item_id/);
+  assert.match(itemReviewMigration, /customer_order\.status = 'delivered'/);
+  assert.match(storeApp, /p_order_item_id: orderItemId/);
+  assert.match(storeApp, /review\.order_item_id===item\.id/);
+  assert.doesNotMatch(storeApp, /Avaliar produtos deste pedido/);
   assert.doesNotMatch(migration, /11968669167/);
 });
 
