@@ -114,7 +114,7 @@ export async function sendTransactionalEmail(input: {
 
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}`, "User-Agent": "oli-vinhos-homolog/1.0" },
     body: JSON.stringify({ from, to: [input.to], subject: input.subject, html: input.html, text: input.text }),
   });
   return response.ok ? { sent: true } : { sent: false, reason: "provider_error" };
