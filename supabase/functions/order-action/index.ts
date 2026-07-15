@@ -20,17 +20,17 @@ function json(data: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: responseHeaders });
 }
 
-async function tokenFromRequest(request: Request): Promise<string> {
+async function requestInput(request: Request): Promise<{ token: string; customerMessage: string }> {
   if (request.method === "POST") {
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("application/json")) {
-      const body = await request.json().catch(() => ({})) as { token?: string };
-      return String(body.token ?? "");
+      const body = await request.json().catch(() => ({})) as { token?: string; customerMessage?: string };
+      return { token: String(body.token ?? ""), customerMessage: String(body.customerMessage ?? "").trim() };
     }
     const form = await request.formData();
-    return String(form.get("token") ?? "");
+    return { token: String(form.get("token") ?? ""), customerMessage: String(form.get("customerMessage") ?? "").trim() };
   }
-  return new URL(request.url).searchParams.get("token") ?? "";
+  return { token: new URL(request.url).searchParams.get("token") ?? "", customerMessage: "" };
 }
 
 Deno.serve(async (request) => {
@@ -38,8 +38,9 @@ Deno.serve(async (request) => {
   if (!supabaseUrl || !serviceRoleKey) return json({ ok: false, message: "A configuração segura deste serviço está incompleta." }, 503);
   if (request.method !== "GET" && request.method !== "POST") return json({ ok: false, message: "Método não permitido." }, 405);
 
-  const token = await tokenFromRequest(request);
+  const { token, customerMessage } = await requestInput(request);
   if (!token || token.length > 256) return json({ ok: false, message: "O endereço está incompleto ou foi alterado." }, 400);
+  if (customerMessage.length > 500) return json({ ok: false, message: "A mensagem ao cliente deve ter no máximo 500 caracteres." }, 400);
 
   const requestUrl = new URL(request.url);
   if (request.method === "GET" && requestUrl.searchParams.get("format") !== "json" && actionPageUrl) {
@@ -73,16 +74,19 @@ Deno.serve(async (request) => {
     });
   }
 
-  const { data, error } = await supabaseAdmin.rpc("apply_order_email_action", { p_token_hash: tokenHash });
+  const { data, error } = await supabaseAdmin.rpc("apply_order_email_action", {
+    p_token_hash: tokenHash,
+    p_customer_message: customerMessage || null,
+  });
   if (error || !data) return json({ ok: false, message: error?.message ?? "Não foi possível atualizar o pedido." }, 409);
 
-  const order = data as WorkflowOrder & { action: WorkflowAction; authorized_email: string };
+  const order = data as WorkflowOrder & { action: WorkflowAction; authorized_email: string; customer_message?: string | null };
   const { data: detailedOrder } = await supabaseAdmin.from("orders").select("*, order_items(*)").eq("id", order.id).single();
   const currentOrder = (detailedOrder ?? order) as WorkflowOrder;
   let customerNotified = false;
   if (currentOrder.customer_email) {
-    const customerMessage = customerNotificationEmail(currentOrder, order.action === "confirm_payment" ? "payment" : "status");
-    const customerResult = await sendTransactionalEmail({ to: currentOrder.customer_email, ...customerMessage });
+    const notification = customerNotificationEmail(currentOrder, order.action === "confirm_payment" ? "payment" : "status", order.customer_message);
+    const customerResult = await sendTransactionalEmail({ to: currentOrder.customer_email, ...notification });
     customerNotified = customerResult.sent;
   }
 

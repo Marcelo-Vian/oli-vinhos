@@ -20,8 +20,8 @@ export type WorkflowOrder = {
 
 export const actionLabels: Record<WorkflowAction, string> = {
   confirm_payment: "Confirmar pagamento Pix",
-  confirm_order: "Confirmar pedido",
-  preparing: "Iniciar separação",
+  confirm_order: "Confirmar pedido e iniciar separação",
+  preparing: "Confirmar pedido e iniciar separação",
   ready: "Marcar pronto para retirada",
   delivered: "Confirmar entrega ao cliente",
 };
@@ -38,14 +38,13 @@ export const statusLabels: Record<string, string> = {
 export function nextAction(order: WorkflowOrder): WorkflowAction | null {
   if (order.status === "canceled" || order.status === "delivered") return null;
   if (order.payment_method === "pix" && order.payment_status === "pending") return "confirm_payment";
-  if (order.status === "pending") return "confirm_order";
-  if (order.status === "confirmed") return "preparing";
+  if (order.status === "pending" || order.status === "confirmed") return "preparing";
   if (order.status === "preparing") return "ready";
   if (order.status === "ready") return "delivered";
   return null;
 }
 
-function randomToken(): string {
+export function randomToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -134,6 +133,12 @@ export function money(value: number): string {
   return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
 }
 
+export async function workflowRecipient(supabaseAdmin: SupabaseClient): Promise<string> {
+  const { data } = await supabaseAdmin.from("store_settings").select("value").eq("key", "workflow_email").maybeSingle();
+  const configured = String(data?.value ?? "").trim();
+  return configured || Deno.env.get("ORDER_TO_EMAIL") || "marcelo.vian@gmail.com";
+}
+
 const paymentStatusLabels: Record<string, string> = {
   pending: "Pendente",
   paid: "Pago",
@@ -154,6 +159,7 @@ const customerStatusMessages: Record<string, string> = {
 export function customerNotificationEmail(
   order: WorkflowOrder,
   kind: CustomerNotificationKind,
+  customerMessage?: string | null,
 ): { subject: string; html: string; text: string } {
   const status = statusLabels[order.status] ?? order.status;
   const paymentStatus = paymentStatusLabels[order.payment_status] ?? order.payment_status;
@@ -170,9 +176,26 @@ export function customerNotificationEmail(
   const items = (order.order_items ?? []).map((item) =>
     `<tr><td style="padding:6px 0">${escapeHtml(item.quantity)}× ${escapeHtml(item.product_name)}</td><td style="padding:6px 0;text-align:right">${money(item.line_total)}</td></tr>`
   ).join("");
-  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>${escapeHtml(headline)}</h1><p>Olá, <b>${escapeHtml(order.customer_name)}</b>.</p><p>${escapeHtml(intro)}</p><div style="background:#f3eee8;padding:16px;margin:20px 0"><b>Pedido #${escapeHtml(order.order_number)}</b><br>Status: ${escapeHtml(status)}<br>Pagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(paymentStatus)}<br>Retirada: ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</div>${items ? `<table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table>` : `<p><b>Total:</b> ${money(order.total)}</p>`}<p style="font-size:12px;color:#766">Este é um aviso automático sobre seu pedido de homologação.</p></div>`;
+  const cleanCustomerMessage = customerMessage?.trim();
+  const customerMessageHtml = cleanCustomerMessage
+    ? `<div style="background:#fff3d8;border-left:4px solid #c3953e;padding:16px;margin:20px 0"><b>Mensagem da OLI Vinhos</b><p style="margin:8px 0 0">${escapeHtml(cleanCustomerMessage)}</p></div>`
+    : "";
+  const accountBaseUrl = Deno.env.get("CUSTOMER_ACCOUNT_URL")?.trim();
+  let reviewUrl = "";
+  if (order.status === "delivered" && accountBaseUrl) {
+    try {
+      const url = new URL(accountBaseUrl);
+      url.searchParams.set("conta", "pedidos");
+      url.searchParams.set("pedido", String(order.order_number));
+      reviewUrl = url.toString();
+    } catch { /* ignore an invalid optional URL */ }
+  }
+  const reviewHtml = reviewUrl
+    ? `<div style="border-top:1px solid #ddd;margin-top:24px;padding-top:20px"><h2 style="font-size:20px">Como foi sua experiência?</h2><p>Avalie somente os produtos deste pedido. O acesso é liberado porque a compra foi concluída.</p><p><a href="${escapeHtml(reviewUrl)}" style="display:inline-block;background:#701b31;color:#fff;text-decoration:none;padding:14px 20px;font-weight:bold">Avaliar produtos comprados</a></p></div>`
+    : "";
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>${escapeHtml(headline)}</h1><p>Olá, <b>${escapeHtml(order.customer_name)}</b>.</p><p>${escapeHtml(intro)}</p>${customerMessageHtml}<div style="background:#f3eee8;padding:16px;margin:20px 0"><b>Pedido #${escapeHtml(order.order_number)}</b><br>Status: ${escapeHtml(status)}<br>Pagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(paymentStatus)}<br>Retirada: ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</div>${items ? `<table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table>` : `<p><b>Total:</b> ${money(order.total)}</p>`}${reviewHtml}<p style="font-size:12px;color:#766">Este é um aviso automático sobre seu pedido de homologação.</p></div>`;
   const subjectPrefix = kind === "received" ? "Recebemos seu pedido" : kind === "payment" ? `Pagamento ${paymentStatus}` : `Pedido ${status}`;
-  const text = `OLI Vinhos - homologação\n${headline}\nPedido #${order.order_number}\n${intro}\nStatus: ${status}\nPagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${paymentStatus}\nRetirada: ${order.pickup_date} às ${String(order.pickup_time).slice(0,5)}\nTotal: ${money(order.total)}`;
+  const text = `OLI Vinhos - homologação\n${headline}\nPedido #${order.order_number}\n${intro}${cleanCustomerMessage ? `\nMensagem da OLI Vinhos: ${cleanCustomerMessage}` : ""}\nStatus: ${status}\nPagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${paymentStatus}\nRetirada: ${order.pickup_date} às ${String(order.pickup_time).slice(0,5)}\nTotal: ${money(order.total)}${reviewUrl ? `\nAvaliar produtos comprados: ${reviewUrl}` : ""}`;
   return { subject: `[Homologação] ${subjectPrefix} — OLI #${order.order_number}`, html, text };
 }
 

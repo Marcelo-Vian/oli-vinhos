@@ -12,7 +12,7 @@ const blank: Partial<WineProduct> = { name: "", slug: "", producer: "", country:
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 const orderStatusLabel: Record<OrderStatus, string> = { pending: "Pendente", confirmed: "Confirmado", preparing: "Em separação", ready: "Pronto para retirada", delivered: "Entregue", canceled: "Cancelado" };
-const orderStatuses = Object.keys(orderStatusLabel) as OrderStatus[];
+const orderStatuses: OrderStatus[] = ["pending", "preparing", "ready", "delivered", "canceled"];
 const paymentStatusLabel: Record<PaymentStatus, string> = { pending: "Pendente", paid: "Pago", expired: "Expirado", refunded: "Estornado", canceled: "Cancelado" };
 const paymentStatuses = Object.keys(paymentStatusLabel) as PaymentStatus[];
 
@@ -40,6 +40,8 @@ export default function AdminApp() {
   const [selectedOrder, setSelectedOrder] = useState<CustomerOrder | null>(null);
   const [adminAllowed, setAdminAllowed] = useState<boolean | null>(null);
   const [currentRole, setCurrentRole] = useState<"master" | "admin" | "manager" | null>(null);
+  const [workflowEmail, setWorkflowEmail] = useState("marcelo.vian@gmail.com");
+  const [workflowEmailBusy, setWorkflowEmailBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function AdminApp() {
     const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
     const role = data?.role === "master" || data?.role === "admin" || data?.role === "manager" ? data.role : null;
     const allowed = role !== null; setCurrentRole(role); setAdminAllowed(allowed);
-    if (allowed) await Promise.all([loadProducts(), loadOrders(), loadCustomers(), loadReviews()]);
+    if (allowed) await Promise.all([loadProducts(), loadOrders(), loadCustomers(), loadReviews(), loadWorkflowEmail()]);
   }
 
   async function loadProducts(notify = false) {
@@ -89,6 +91,25 @@ export default function AdminApp() {
     if (!supabase) return;
     const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
     if (data) { setCustomers(data as CustomerProfile[]); if (notify) setMessage({ type: "ok", text: "Cadastros atualizados." }); }
+  }
+  async function loadWorkflowEmail() {
+    if (!supabase) return;
+    const { data } = await supabase.rpc("get_workflow_email");
+    if (typeof data === "string" && data) setWorkflowEmail(data);
+  }
+  async function saveWorkflowEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || workflowEmailBusy || (currentRole !== "master" && currentRole !== "admin")) return;
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get("workflowEmail") ?? "").trim().toLowerCase();
+    setWorkflowEmailBusy(true);
+    const { data: saved, error } = await supabase.rpc("set_workflow_email", { p_email: email });
+    setWorkflowEmailBusy(false);
+    if (error) setMessage({ type: "error", text: error.message });
+    else {
+      setWorkflowEmail(String(saved));
+      setMessage({ type: "ok", text: `E-mail do workflow alterado para ${saved}.` });
+    }
   }
   async function changeOrderStatus(order: CustomerOrder, nextStatus: OrderStatus) {
     if (!supabase) return;
@@ -284,11 +305,15 @@ export default function AdminApp() {
       {section === "orders" && <OrdersSection orders={orders} filter={orderFilter} setFilter={setOrderFilter} onRefresh={()=>loadOrders(true)} onSelect={setSelectedOrder} onStatus={changeOrderStatus}/>}
       {section === "customers" && <CustomersSection customers={customers} orders={orders} canEdit={Boolean(currentRole)} onEdit={(customer)=>{setUserEditFeedback(null);setEditingUser(customer);}} onRefresh={async () => { await Promise.all([loadCustomers(), loadOrders()]); setMessage({type:"ok",text:"Clientes atualizados."}); }}/>}
       {section === "reviews" && <ReviewsSection reviews={reviews} onRefresh={()=>loadReviews(true)} onModerate={moderateReview}/>}
-      {section === "admins" && canControlAccess && <AdminsSection members={customers.filter((profile)=>profile.role==="master"||profile.role==="admin"||profile.role==="manager")} currentUserId={session.user.id} currentRole={currentRole} onEdit={(member)=>{setUserEditFeedback(null);setEditingUser(member);}} onRefresh={()=>loadCustomers(true)} onCreate={()=>{ setAdminCreationFeedback(null); setCreatingAdmin(true); }} onReset={resetAdminPassword} onRemove={removeAdmin} onRole={changeStaffRole}/>}</main>
+      {section === "admins" && canControlAccess && <><WorkflowEmailSettings email={workflowEmail} canEdit={canCreateAdmin} busy={workflowEmailBusy} onSave={saveWorkflowEmail}/><AdminsSection members={customers.filter((profile)=>profile.role==="master"||profile.role==="admin"||profile.role==="manager")} currentUserId={session.user.id} currentRole={currentRole} onEdit={(member)=>{setUserEditFeedback(null);setEditingUser(member);}} onRefresh={()=>loadCustomers(true)} onCreate={()=>{ setAdminCreationFeedback(null); setCreatingAdmin(true); }} onReset={resetAdminPassword} onRemove={removeAdmin} onRole={changeStaffRole}/></>}</main>
     {editing&&<ProductForm product={editing} busy={savingProduct} setProduct={setEditing} onClose={()=>{if(!savingProduct)setEditing(null);}} onSave={saveProduct} onMessage={setMessage}/>} {changingPassword&&<PasswordForm busy={changingPasswordBusy} onClose={()=>{if(!changingPasswordBusy)setChangingPassword(false);}} onSave={changePassword}/>} {creatingAdmin&&<CreateAdminForm canCreateAdmin={canCreateAdmin} feedback={adminCreationFeedback} busy={creatingAdminBusy} onClose={()=>{ if (!creatingAdminBusy) { setCreatingAdmin(false); setAdminCreationFeedback(null); } }} onSave={createAdmin}/>} {editingUser&&<EditUserForm user={editingUser} callerRole={currentRole} feedback={userEditFeedback} busy={editingUserBusy} onClose={()=>{if(!editingUserBusy){setEditingUser(null);setUserEditFeedback(null);}}} onSave={updateUser}/>} {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onStatus={async (next) => { await changeOrderStatus(selectedOrder,next); setSelectedOrder(null); }} onPayment={async (next) => { await changePaymentStatus(selectedOrder,next); setSelectedOrder(null); }}/>}</div>;
 }
 function AdminGate({ children }: { children: React.ReactNode }) { return <main className="admin-gate">{children}</main>; }
 function AdminMessage({ message }: { message: { type: "ok"|"error"; text:string } }) { return <div className={`admin-message ${message.type}`}><CircleAlert/>{message.text}</div>; }
+
+function WorkflowEmailSettings({ email, canEdit, busy, onSave }: { email:string; canEdit:boolean; busy:boolean; onSave:(event:React.FormEvent<HTMLFormElement>)=>void }) {
+  return <section className="workflow-settings"><div><p>Notificações operacionais</p><h2>E-mail do workflow</h2><small>Recebe novos pedidos, próximas etapas e avaliações para aprovar ou rejeitar.</small></div><form onSubmit={onSave}><label>E-mail responsável<input type="email" name="workflowEmail" defaultValue={email} key={email} required readOnly={!canEdit} disabled={busy}/></label><button className="primary-button" type="submit" disabled={!canEdit||busy}>{busy?"Salvando…":"Salvar e-mail"}</button></form><p className="workflow-permission">{canEdit?"MASTER e Administrador geral podem alterar esta configuração.":"Somente MASTER e Administrador geral podem alterar. Você pode apenas consultar."}</p></section>;
+}
 
 function RevealablePassword({ name, minLength, required = false, autoComplete, disabled = false }: { name:string; minLength?:number; required?:boolean; autoComplete?:string; disabled?:boolean }) {
   const [visible,setVisible]=useState(false);

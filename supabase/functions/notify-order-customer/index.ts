@@ -3,7 +3,7 @@ import { customerNotificationEmail, sendTransactionalEmail, type CustomerNotific
 
 export default {
   fetch: withSupabase({ auth: "user" }, async (request, context) => {
-    const body = await request.json().catch(() => ({})) as { orderId?: string; kind?: CustomerNotificationKind };
+    const body = await request.json().catch(() => ({})) as { orderId?: string; kind?: CustomerNotificationKind; customerMessage?: string };
     const kind = body.kind === "payment" ? "payment" : "status";
     const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
     const { data: verifiedAuth } = token ? await context.supabaseAdmin.auth.getUser(token) : { data: { user: null } };
@@ -23,7 +23,9 @@ export default {
     if (error || !order) return Response.json({ sent: false, message: "Pedido não encontrado." }, { status: 404 });
     if (!order.customer_email) return Response.json({ sent: false, message: "Cliente sem e-mail cadastrado." });
 
-    const message = customerNotificationEmail(order as WorkflowOrder, kind);
+    const customerMessage = String(body.customerMessage ?? "").trim();
+    if (customerMessage.length > 500) return Response.json({ sent: false, message: "A mensagem deve ter no máximo 500 caracteres." }, { status: 400 });
+    const message = customerNotificationEmail(order as WorkflowOrder, kind, customerMessage || null);
     const result = await sendTransactionalEmail({ to: order.customer_email, ...message });
     return Response.json(result);
   }),

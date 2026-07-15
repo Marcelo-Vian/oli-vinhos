@@ -7,6 +7,7 @@ type ActionInfo = {
   message?: string;
   used?: boolean;
   expired?: boolean;
+  action?: string;
   actionLabel?: string;
   order?: {
     orderNumber: number;
@@ -37,6 +38,7 @@ function OrderActionPage() {
   const [info, setInfo] = useState<ActionInfo | null>(configurationError);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [customerMessage, setCustomerMessage] = useState("");
 
   useEffect(() => {
     if (!endpoint || !token) return;
@@ -58,7 +60,7 @@ function OrderActionPage() {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, customerMessage }),
       });
       const data = await response.json() as ActionResult;
       setResult(data);
@@ -85,6 +87,17 @@ function OrderActionPage() {
         <h1>Pedido #{content.order.orderNumber}</h1>
         <p><b>{content.order.customerName}</b><br/>Total: {money.format(content.order.total)}<br/>Status atual: {content.order.statusLabel}</p>
         <p>Deseja realmente executar a ação <b>{content.actionLabel}</b>?</p>
+        {content.action === "ready" && <label className="action-message">
+          Mensagem ao cliente (opcional)
+          <textarea
+            rows={4}
+            maxLength={500}
+            value={customerMessage}
+            onChange={(event) => setCustomerMessage(event.target.value)}
+            placeholder="Ex.: seu pedido está pronto. Retire hoje até 18h no endereço combinado."
+          />
+          <small>{customerMessage.length}/500 — use para informar horário, local ou outra orientação.</small>
+        </label>}
         <button type="button" className="action-button" onClick={confirmAction} disabled={busy}>{busy ? "Confirmando…" : "Sim, confirmar ação"}</button>
         <p className="action-muted">Nenhuma alteração acontece antes desta confirmação.</p>
       </> : <>

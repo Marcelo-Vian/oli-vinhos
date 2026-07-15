@@ -1,5 +1,5 @@
 import { withSupabase } from "npm:@supabase/server@^1";
-import { createActionLink, customerNotificationEmail, nextAction, sendTransactionalEmail, workflowEmail, type WorkflowOrder } from "../_shared/order-workflow.ts";
+import { createActionLink, customerNotificationEmail, nextAction, sendTransactionalEmail, workflowEmail, workflowRecipient, type WorkflowOrder } from "../_shared/order-workflow.ts";
 
 export default {
   fetch: withSupabase({ auth: "user" }, async (request, context) => {
@@ -22,7 +22,7 @@ export default {
       return Response.json({ message: "Acesso negado." }, { status: 403 });
     }
 
-    const managerEmail = Deno.env.get("ORDER_TO_EMAIL") ?? "marcelo.vian@gmail.com";
+    const managerEmail = await workflowRecipient(context.supabaseAdmin);
     const actionBaseUrl = Deno.env.get("ORDER_ACTION_BASE_URL") ?? `${Deno.env.get("SUPABASE_URL")}/functions/v1/order-action`;
     const workflowOrder = order as WorkflowOrder;
     const action = nextAction(workflowOrder);
