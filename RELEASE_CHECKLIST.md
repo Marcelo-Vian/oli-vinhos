@@ -47,9 +47,17 @@ alteracao de estoque.
 - O retorno do provedor e validado antes de alterar o status.
 - Um pedido cancelado libera a reserva de estoque quando aplicavel.
 
+## Testes do workflow por e-mail
+
+- O e-mail operacional da homologacao chega somente ao destinatario configurado.
+- O link abre uma confirmacao e nao altera o pedido apenas ao ser visualizado.
+- Cada link expira em 7 dias e funciona uma unica vez.
+- As etapas respeitam a ordem: pagamento, confirmacao, separacao, pronto e entregue.
+- Cada acao aparece no historico do pedido com a origem por e-mail.
+- A chave Pix real continua ausente da homologacao.
+
 ## Retorno de emergencia
 
 O codigo pode voltar para a tag anterior. Migracoes de banco devem ser
 aditivas e compativeis com a versao anterior para que o retorno do site nao
 cause perda de dados.
-

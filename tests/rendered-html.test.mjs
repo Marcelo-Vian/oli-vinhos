@@ -32,3 +32,20 @@ test("mantém dados de contato centralizados e sem segredos", async () => {
   assert.doesNotMatch(env + products, /sb_secret_[A-Za-z0-9_-]+/);
   assert.equal((products.match(/product\("oli-/g) ?? []).length, 16);
 });
+
+test("workflow por e-mail exige confirmação e guarda somente o hash do token", async () => {
+  const [actionFunction, migration, shared] = await Promise.all([
+    readFile(new URL("../supabase/functions/order-action/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260715170000_order_email_workflow.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/_shared/order-workflow.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(actionFunction, /request\.method === "GET"/);
+  assert.match(actionFunction, /<form method="post">/);
+  assert.match(actionFunction, /cache-control": "no-store"/);
+  assert.match(migration, /token_hash text not null unique/);
+  assert.match(migration, /used_at is not null/);
+  assert.match(migration, /grant execute on function public\.apply_order_email_action\(text\) to service_role/);
+  assert.match(shared, /crypto\.getRandomValues/);
+  assert.match(shared, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.doesNotMatch(migration, /11968669167/);
+});
