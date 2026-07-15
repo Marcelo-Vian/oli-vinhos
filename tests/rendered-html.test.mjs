@@ -43,7 +43,9 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
     readFile(new URL("../supabase/functions/_shared/order-workflow.ts", import.meta.url), "utf8"),
   ]);
   assert.match(actionFunction, /request\.method === "GET"/);
-  assert.match(actionFunction, /<form method="post">/);
+  assert.match(actionFunction, /Response\.redirect\(pageUrl\.toString\(\), 302\)/);
+  assert.match(actionFunction, /format"\) !== "json"/);
+  assert.match(actionFunction, /"content-type": "application\/json; charset=utf-8"/);
   assert.match(actionFunction, /cache-control": "no-store"/);
   assert.match(migration, /token_hash text not null unique/);
   assert.match(migration, /used_at is not null/);
@@ -56,4 +58,17 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.match(adminApp, /notify-order-customer/);
   assert.doesNotMatch(storeApp, /Enviar cópia por e-mail/);
   assert.doesNotMatch(migration, /11968669167/);
+});
+
+test("tela pública de confirmação usa a API segura sem expor HTML pela função", async () => {
+  const [page, entry, viteConfig] = await Promise.all([
+    readFile(new URL("../static-site/pedido/acao/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../static-site/order-action.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../vite.pages.config.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /order-action\.tsx/);
+  assert.match(entry, /Sim, confirmar ação/);
+  assert.match(entry, /format=json/);
+  assert.match(entry, /method: "POST"/);
+  assert.match(viteConfig, /orderAction/);
 });

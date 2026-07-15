@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         store: resolve(__dirname, "static-site/index.html"),
         admin: resolve(__dirname, "static-site/admin/index.html"),
+        orderAction: resolve(__dirname, "static-site/pedido/acao/index.html"),
       },
     },
   },
