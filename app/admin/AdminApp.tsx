@@ -94,13 +94,27 @@ export default function AdminApp() {
     if (!supabase) return;
     const { error } = await supabase.rpc("set_order_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
     if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pedido #${order.order_number}.` });
-    else { setMessage({ type: "ok", text: `Pedido #${order.order_number} atualizado para ${orderStatusLabel[nextStatus]}.` }); await loadOrders(); }
+    else {
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "status" } });
+      const notified = !notification.error && notification.data?.sent;
+      setMessage(notified
+        ? { type: "ok", text: `Pedido #${order.order_number} atualizado para ${orderStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
+        : { type: "error", text: `Pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
+      await loadOrders();
+    }
   }
   async function changePaymentStatus(order: CustomerOrder, nextStatus: PaymentStatus) {
     if (!supabase) return;
     const { error } = await supabase.rpc("set_payment_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
     if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pagamento do pedido #${order.order_number}.` });
-    else { setMessage({ type: "ok", text: `Pagamento do pedido #${order.order_number}: ${paymentStatusLabel[nextStatus]}.` }); await loadOrders(); }
+    else {
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "payment" } });
+      const notified = !notification.error && notification.data?.sent;
+      setMessage(notified
+        ? { type: "ok", text: `Pagamento do pedido #${order.order_number}: ${paymentStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
+        : { type: "error", text: `O pagamento do pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
+      await loadOrders();
+    }
   }
   async function moderateReview(review: ProductReview, status: ReviewStatus) {
     if (!supabase) return;

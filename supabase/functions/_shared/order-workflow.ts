@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@^2.110.3";
 
 export type WorkflowAction = "confirm_payment" | "confirm_order" | "preparing" | "ready" | "delivered";
+export type CustomerNotificationKind = "received" | "status" | "payment";
 
 export type WorkflowOrder = {
   id: string;
@@ -131,6 +132,48 @@ export function escapeHtml(value: unknown): string {
 
 export function money(value: number): string {
   return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
+}
+
+const paymentStatusLabels: Record<string, string> = {
+  pending: "Pendente",
+  paid: "Pago",
+  expired: "Expirado",
+  refunded: "Estornado",
+  canceled: "Cancelado",
+};
+
+const customerStatusMessages: Record<string, string> = {
+  pending: "Recebemos seu pedido e ele aguarda a confirmação da OLI Vinhos.",
+  confirmed: "Seu pedido foi confirmado pela OLI Vinhos.",
+  preparing: "Seu pedido está sendo separado com cuidado.",
+  ready: "Seu pedido está pronto para retirada no horário combinado.",
+  delivered: "A retirada foi concluída. Obrigado por escolher a OLI Vinhos.",
+  canceled: "Seu pedido foi cancelado. Em caso de dúvida, entre em contato com a OLI Vinhos.",
+};
+
+export function customerNotificationEmail(
+  order: WorkflowOrder,
+  kind: CustomerNotificationKind,
+): { subject: string; html: string; text: string } {
+  const status = statusLabels[order.status] ?? order.status;
+  const paymentStatus = paymentStatusLabels[order.payment_status] ?? order.payment_status;
+  const headline = kind === "received"
+    ? "Recebemos seu pedido"
+    : kind === "payment"
+      ? `Pagamento ${paymentStatus.toLowerCase()}`
+      : customerStatusMessages[order.status] ?? `Pedido atualizado: ${status}`;
+  const intro = kind === "received"
+    ? customerStatusMessages.pending
+    : kind === "payment"
+      ? `O pagamento do seu pedido agora está como ${paymentStatus.toLowerCase()}.`
+      : customerStatusMessages[order.status] ?? `O status do seu pedido foi atualizado para ${status}.`;
+  const items = (order.order_items ?? []).map((item) =>
+    `<tr><td style="padding:6px 0">${escapeHtml(item.quantity)}× ${escapeHtml(item.product_name)}</td><td style="padding:6px 0;text-align:right">${money(item.line_total)}</td></tr>`
+  ).join("");
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>${escapeHtml(headline)}</h1><p>Olá, <b>${escapeHtml(order.customer_name)}</b>.</p><p>${escapeHtml(intro)}</p><div style="background:#f3eee8;padding:16px;margin:20px 0"><b>Pedido #${escapeHtml(order.order_number)}</b><br>Status: ${escapeHtml(status)}<br>Pagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(paymentStatus)}<br>Retirada: ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</div>${items ? `<table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table>` : `<p><b>Total:</b> ${money(order.total)}</p>`}<p style="font-size:12px;color:#766">Este é um aviso automático sobre seu pedido de homologação.</p></div>`;
+  const subjectPrefix = kind === "received" ? "Recebemos seu pedido" : kind === "payment" ? `Pagamento ${paymentStatus}` : `Pedido ${status}`;
+  const text = `OLI Vinhos - homologação\n${headline}\nPedido #${order.order_number}\n${intro}\nStatus: ${status}\nPagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${paymentStatus}\nRetirada: ${order.pickup_date} às ${String(order.pickup_time).slice(0,5)}\nTotal: ${money(order.total)}`;
+  return { subject: `[Homologação] ${subjectPrefix} — OLI #${order.order_number}`, html, text };
 }
 
 export function workflowEmail(order: WorkflowOrder, action: WorkflowAction | null, actionUrl?: string): { subject: string; html: string; text: string } {

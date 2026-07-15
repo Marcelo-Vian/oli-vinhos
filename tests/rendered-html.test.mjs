@@ -34,8 +34,11 @@ test("mantém dados de contato centralizados e sem segredos", async () => {
 });
 
 test("workflow por e-mail exige confirmação e guarda somente o hash do token", async () => {
-  const [actionFunction, migration, shared] = await Promise.all([
+  const [actionFunction, notificationFunction, adminApp, storeApp, migration, shared] = await Promise.all([
     readFile(new URL("../supabase/functions/order-action/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/notify-order-customer/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/AdminApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/StoreApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715170000_order_email_workflow.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/functions/_shared/order-workflow.ts", import.meta.url), "utf8"),
   ]);
@@ -47,5 +50,10 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.match(migration, /grant execute on function public\.apply_order_email_action\(text\) to service_role/);
   assert.match(shared, /crypto\.getRandomValues/);
   assert.match(shared, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(shared, /customerNotificationEmail/);
+  assert.match(actionFunction, /customerNotificationEmail\(currentOrder/);
+  assert.match(notificationFunction, /\["master", "admin", "manager"\]/);
+  assert.match(adminApp, /notify-order-customer/);
+  assert.doesNotMatch(storeApp, /Enviar cópia por e-mail/);
   assert.doesNotMatch(migration, /11968669167/);
 });

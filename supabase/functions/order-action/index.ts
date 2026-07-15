@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@^2.110.3";
-import { actionLabels, createActionLink, escapeHtml, hashToken, nextAction, sendTransactionalEmail, statusLabels, workflowEmail, type WorkflowAction, type WorkflowOrder } from "../_shared/order-workflow.ts";
+import { actionLabels, createActionLink, customerNotificationEmail, escapeHtml, hashToken, nextAction, sendTransactionalEmail, statusLabels, workflowEmail, type WorkflowAction, type WorkflowOrder } from "../_shared/order-workflow.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -43,6 +43,10 @@ Deno.serve(async (request) => {
   const order = data as WorkflowOrder & { action: WorkflowAction; authorized_email: string };
   const { data: detailedOrder } = await supabaseAdmin.from("orders").select("*, order_items(*)").eq("id", order.id).single();
   const currentOrder = (detailedOrder ?? order) as WorkflowOrder;
+  if (currentOrder.customer_email) {
+    const customerMessage = customerNotificationEmail(currentOrder, order.action === "confirm_payment" ? "payment" : "status");
+    await sendTransactionalEmail({ to: currentOrder.customer_email, ...customerMessage });
+  }
   const next = nextAction(currentOrder);
   let followUpSent = false;
   if (next) {
