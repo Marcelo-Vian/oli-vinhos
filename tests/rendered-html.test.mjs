@@ -130,6 +130,7 @@ test("aplica defesa em profundidade na hospedagem e nos endpoints de notificaç�
   assert.match(hardeningMigration, /jsonb_array_length\(p_items\) > 50/);
   assert.match(hardeningMigration, /created_at >= now\(\) - interval '1 hour'/);
   assert.match(hardeningMigration, /comentário deve ter no máximo 1000 caracteres/);
-  assert.match(deployWorkflow, /wrangler@4 pages deploy/);
-  assert.doesNotMatch(deployWorkflow, /deploy-pages@/);
+  assert.match(deployWorkflow, /actions\/deploy-pages@v4/);
+  assert.match(deployWorkflow, /actions\/upload-pages-artifact@v3/);
+  assert.doesNotMatch(deployWorkflow, /wrangler@4 pages deploy/);
 });

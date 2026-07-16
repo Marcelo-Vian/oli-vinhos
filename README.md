@@ -7,7 +7,7 @@ Loja virtual responsiva para o catálogo 2026 da OLI Vinhos. O visitante pesquis
 - React, TypeScript, Vite e Vinext
 - Supabase Database, Auth e Storage
 - CSS responsivo sem tema genérico
-- GitHub Actions e Cloudflare Pages
+- GitHub Actions e GitHub Pages
 
 O site continua utilizável caso o Supabase falhe: os 16 produtos verificados no PDF são carregados como catálogo de contingência. O carrinho é salvo no `localStorage`.
 
@@ -62,21 +62,19 @@ Nome, WhatsApp e e-mail ficam centralizados em `app/data/store-config.ts`. Não 
 
 O catálogo de contingência fica em `app/data/products.ts`. As imagens extraídas do PDF estão em `public/products`. Consulte `PRODUCTS_REVIEW.md` para campos ausentes e pendências.
 
-## Publicação no Cloudflare Pages
+## Publicação no GitHub Pages
 
-1. Crie o projeto Direct Upload `oli-vinhos` no Cloudflare Pages.
+1. Em **Settings → Pages**, escolha **GitHub Actions** como fonte.
 2. Em **Settings → Secrets and variables → Actions**:
    - crie a variável `VITE_SUPABASE_URL`;
    - crie o secret `VITE_SUPABASE_PUBLISHABLE_KEY` (é uma chave pública, mas o secret evita exposição nos logs).
-   - crie os secrets `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`, com o token limitado à edição do Pages.
-3. Associe `olivinhos.aucaris.com` como domínio personalizado do projeto.
-4. Execute manualmente o workflow **Publicar OLI Vinhos em producao (Cloudflare)** e informe
-   uma tag de versao que aponte para o estado atual da branch `main`.
+3. Configure `olivinhos.aucaris.com` como domínio personalizado do GitHub Pages.
+4. Execute manualmente o workflow **Publicar OLI Vinhos em producao** e informe
+    uma tag de versao que aponte para o estado atual da branch `main`.
 
 O workflow instala as dependências, executa lint, testes e o build estático antes
 de publicar `dist-pages`. A produção não é publicada automaticamente por um
-push. O repositório pode permanecer privado; o site continua público somente
-pelo domínio configurado.
+push.
 
 ## Desenvolvimento, homologação e versões
 
@@ -92,6 +90,8 @@ procedimento completo e os testes obrigatórios estão em
 Senhas, tokens, `service_role`, chaves de pagamento e arquivos `.env` nunca
 devem ser versionados. O build público contém apenas a chave `publishable` do
 Supabase; toda autorização real continua protegida por RLS e funções do banco.
+O repositório permanece público enquanto a produção utilizar o GitHub Pages no
+plano gratuito.
 
 ## Testes
 
