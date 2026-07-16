@@ -26,10 +26,11 @@ type ReviewResult = ReviewInfo & {
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
 const endpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/review-action` : "";
+const isProduction = import.meta.env.VITE_APP_ENV === "production";
 
 function ReviewActionPage() {
   const token = new URLSearchParams(window.location.search).get("token") ?? "";
-  const [info, setInfo] = useState<ReviewInfo | null>(!endpoint || !token ? { ok: false, message: "O link está incompleto ou a homologação não foi configurada." } : null);
+  const [info, setInfo] = useState<ReviewInfo | null>(!endpoint || !token ? { ok: false, message: "O link está incompleto ou o ambiente não foi configurado." } : null);
   const [result, setResult] = useState<ReviewResult | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,7 +63,7 @@ function ReviewActionPage() {
   const content = result ?? info;
   return <main className="action-card">
     <div className="action-brand">OLI VINHOS</div>
-    <div className="action-test">Ambiente de homologação</div>
+    {!isProduction && <div className="action-test">Ambiente de homologação</div>}
     {!content ? <div className="action-loading" role="status"><i/> Consultando avaliação…</div>
       : result?.ok && result.completed ? <>
         <div className="action-success">✓</div>

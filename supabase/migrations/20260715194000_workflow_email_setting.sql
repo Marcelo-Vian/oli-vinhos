@@ -8,7 +8,7 @@ create table if not exists public.store_settings (
 );
 
 insert into public.store_settings (key, value)
-values ('workflow_email', 'marcelo.vian@gmail.com')
+values ('workflow_email', 'olivinhos.comercial@gmail.com')
 on conflict (key) do nothing;
 
 alter table public.store_settings enable row level security;

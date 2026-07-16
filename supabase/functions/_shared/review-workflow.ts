@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@^2.110.3";
-import { escapeHtml, hashToken, randomToken } from "./order-workflow.ts";
+import { escapeHtml, hashToken, isProductionEnvironment, randomToken } from "./order-workflow.ts";
 
 export type ReviewAction = "approve" | "reject";
 
@@ -54,7 +54,9 @@ export function reviewModerationEmail(
   const name = productName(review);
   const stars = "★".repeat(review.rating) + "☆".repeat(5 - review.rating);
   const comment = review.comment?.trim() || "Sem comentário.";
-  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>Nova avaliação para moderar</h1><div style="background:#f3eee8;padding:18px;margin:20px 0"><b>${escapeHtml(name)}</b><p style="color:#9b641f;font-size:22px;margin:10px 0">${stars}</p><p><b>Cliente:</b> ${escapeHtml(review.customer_name)}</p><p style="white-space:pre-wrap">${escapeHtml(comment)}</p></div><table role="presentation" style="width:100%;border-collapse:collapse"><tr><td style="padding-right:6px"><a href="${escapeHtml(approveUrl)}" style="display:block;background:#27553a;color:#fff;text-decoration:none;padding:14px;text-align:center;font-weight:bold">Aprovar e publicar</a></td><td style="padding-left:6px"><a href="${escapeHtml(rejectUrl)}" style="display:block;background:#8d2639;color:#fff;text-decoration:none;padding:14px;text-align:center;font-weight:bold">Rejeitar avaliação</a></td></tr></table><p style="font-size:12px;color:#766">Os links expiram em 7 dias, exigem confirmação e só podem ser utilizados uma vez.</p></div>`;
-  const text = `OLI Vinhos - homologação\nNova avaliação para moderar\nProduto: ${name}\nCliente: ${review.customer_name}\nNota: ${review.rating}/5\nComentário: ${comment}\nAprovar e publicar: ${approveUrl}\nRejeitar: ${rejectUrl}`;
-  return { subject: `[Homologação] Avaliação de ${review.customer_name} — ${name}`, html, text };
+  const production = isProductionEnvironment();
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">${production ? "OLI VINHOS" : "OLI VINHOS · HOMOLOGAÇÃO"}</p><h1>Nova avaliação para moderar</h1><div style="background:#f3eee8;padding:18px;margin:20px 0"><b>${escapeHtml(name)}</b><p style="color:#9b641f;font-size:22px;margin:10px 0">${stars}</p><p><b>Cliente:</b> ${escapeHtml(review.customer_name)}</p><p style="white-space:pre-wrap">${escapeHtml(comment)}</p></div><table role="presentation" style="width:100%;border-collapse:collapse"><tr><td style="padding-right:6px"><a href="${escapeHtml(approveUrl)}" style="display:block;background:#27553a;color:#fff;text-decoration:none;padding:14px;text-align:center;font-weight:bold">Aprovar e publicar</a></td><td style="padding-left:6px"><a href="${escapeHtml(rejectUrl)}" style="display:block;background:#8d2639;color:#fff;text-decoration:none;padding:14px;text-align:center;font-weight:bold">Rejeitar avaliação</a></td></tr></table><p style="font-size:12px;color:#766">Os links expiram em 7 dias, exigem confirmação e só podem ser utilizados uma vez.</p></div>`;
+  const text = `${production ? "OLI Vinhos" : "OLI Vinhos - homologação"}\nNova avaliação para moderar\nProduto: ${name}\nCliente: ${review.customer_name}\nNota: ${review.rating}/5\nComentário: ${comment}\nAprovar e publicar: ${approveUrl}\nRejeitar: ${rejectUrl}`;
+  const subject = `Avaliação de ${review.customer_name} — ${name}`;
+  return { subject: production ? subject : `[Homologação] ${subject}`, html, text };
 }

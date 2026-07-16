@@ -73,7 +73,7 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.match(itemReviewMigration, /item\.id = p_order_item_id/);
   assert.match(itemReviewMigration, /customer_order\.status = 'delivered'/);
   assert.match(storeApp, /p_order_item_id: orderItemId/);
-  assert.match(storeApp, /review\.order_item_id===item\.id/);
+  assert.match(storeApp, /review\.order_item_id\s*===\s*item\.id/);
   assert.doesNotMatch(storeApp, /Avaliar produtos deste pedido/);
   assert.doesNotMatch(migration, /11968669167/);
 });

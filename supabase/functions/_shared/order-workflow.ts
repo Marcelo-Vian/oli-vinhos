@@ -3,6 +3,22 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@^2.110.3";
 export type WorkflowAction = "confirm_payment" | "confirm_order" | "preparing" | "ready" | "delivered";
 export type CustomerNotificationKind = "received" | "status" | "payment";
 
+export function isProductionEnvironment(): boolean {
+  return Deno.env.get("APP_ENVIRONMENT")?.trim().toLowerCase() === "production";
+}
+
+function environmentBrand(): string {
+  return isProductionEnvironment() ? "OLI VINHOS" : "OLI VINHOS · HOMOLOGAÇÃO";
+}
+
+function environmentText(): string {
+  return isProductionEnvironment() ? "OLI Vinhos" : "OLI Vinhos - homologação";
+}
+
+function environmentSubject(subject: string): string {
+  return isProductionEnvironment() ? subject : `[Homologação] ${subject}`;
+}
+
 export type WorkflowOrder = {
   id: string;
   order_number: number;
@@ -114,7 +130,7 @@ export async function sendTransactionalEmail(input: {
 
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}`, "User-Agent": "oli-vinhos-homolog/1.0" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendApiKey}`, "User-Agent": "oli-vinhos/1.0" },
     body: JSON.stringify({ from, to: [input.to], subject: input.subject, html: input.html, text: input.text }),
   });
   return response.ok ? { sent: true } : { sent: false, reason: "provider_error" };
@@ -136,7 +152,7 @@ export function money(value: number): string {
 export async function workflowRecipient(supabaseAdmin: SupabaseClient): Promise<string> {
   const { data } = await supabaseAdmin.from("store_settings").select("value").eq("key", "workflow_email").maybeSingle();
   const configured = String(data?.value ?? "").trim();
-  return configured || Deno.env.get("ORDER_TO_EMAIL") || "marcelo.vian@gmail.com";
+  return configured || Deno.env.get("ORDER_TO_EMAIL") || (isProductionEnvironment() ? "olivinhos.comercial@gmail.com" : "marcelo.vian@gmail.com");
 }
 
 const paymentStatusLabels: Record<string, string> = {
@@ -193,10 +209,10 @@ export function customerNotificationEmail(
   const reviewHtml = reviewUrl
     ? `<div style="border-top:1px solid #ddd;margin-top:24px;padding-top:20px"><h2 style="font-size:20px">Como foi sua experiência?</h2><p>Avalie somente os produtos deste pedido. O acesso é liberado porque a compra foi concluída.</p><p><a href="${escapeHtml(reviewUrl)}" style="display:inline-block;background:#701b31;color:#fff;text-decoration:none;padding:14px 20px;font-weight:bold">Avaliar produtos comprados</a></p></div>`
     : "";
-  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>${escapeHtml(headline)}</h1><p>Olá, <b>${escapeHtml(order.customer_name)}</b>.</p><p>${escapeHtml(intro)}</p>${customerMessageHtml}<div style="background:#f3eee8;padding:16px;margin:20px 0"><b>Pedido #${escapeHtml(order.order_number)}</b><br>Status: ${escapeHtml(status)}<br>Pagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(paymentStatus)}<br>Retirada: ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</div>${items ? `<table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table>` : `<p><b>Total:</b> ${money(order.total)}</p>`}${reviewHtml}<p style="font-size:12px;color:#766">Este é um aviso automático sobre seu pedido de homologação.</p></div>`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">${environmentBrand()}</p><h1>${escapeHtml(headline)}</h1><p>Olá, <b>${escapeHtml(order.customer_name)}</b>.</p><p>${escapeHtml(intro)}</p>${customerMessageHtml}<div style="background:#f3eee8;padding:16px;margin:20px 0"><b>Pedido #${escapeHtml(order.order_number)}</b><br>Status: ${escapeHtml(status)}<br>Pagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(paymentStatus)}<br>Retirada: ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</div>${items ? `<table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table>` : `<p><b>Total:</b> ${money(order.total)}</p>`}${reviewHtml}<p style="font-size:12px;color:#766">Este é um aviso automático sobre seu pedido.</p></div>`;
   const subjectPrefix = kind === "received" ? "Recebemos seu pedido" : kind === "payment" ? `Pagamento ${paymentStatus}` : `Pedido ${status}`;
-  const text = `OLI Vinhos - homologação\n${headline}\nPedido #${order.order_number}\n${intro}${cleanCustomerMessage ? `\nMensagem da OLI Vinhos: ${cleanCustomerMessage}` : ""}\nStatus: ${status}\nPagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${paymentStatus}\nRetirada: ${order.pickup_date} às ${String(order.pickup_time).slice(0,5)}\nTotal: ${money(order.total)}${reviewUrl ? `\nAvaliar produtos comprados: ${reviewUrl}` : ""}`;
-  return { subject: `[Homologação] ${subjectPrefix} — OLI #${order.order_number}`, html, text };
+  const text = `${environmentText()}\n${headline}\nPedido #${order.order_number}\n${intro}${cleanCustomerMessage ? `\nMensagem da OLI Vinhos: ${cleanCustomerMessage}` : ""}\nStatus: ${status}\nPagamento: ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${paymentStatus}\nRetirada: ${order.pickup_date} às ${String(order.pickup_time).slice(0,5)}\nTotal: ${money(order.total)}${reviewUrl ? `\nAvaliar produtos comprados: ${reviewUrl}` : ""}`;
+  return { subject: environmentSubject(`${subjectPrefix} — OLI #${order.order_number}`), html, text };
 }
 
 export function workflowEmail(order: WorkflowOrder, action: WorkflowAction | null, actionUrl?: string): { subject: string; html: string; text: string } {
@@ -206,7 +222,7 @@ export function workflowEmail(order: WorkflowOrder, action: WorkflowAction | nul
   const button = action && actionUrl
     ? `<p style="margin:24px 0"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#701b31;color:#fff;text-decoration:none;padding:14px 20px;font-weight:bold">${escapeHtml(actionLabels[action])}</a></p><p style="font-size:12px;color:#766">O link expira em 7 dias e abre uma tela de confirmação antes de alterar o pedido.</p>`
     : `<p style="background:#e5f2e9;color:#245b3b;padding:12px"><b>Fluxo concluído.</b> Nenhuma ação operacional está pendente.</p>`;
-  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">OLI VINHOS · HOMOLOGAÇÃO</p><h1>Pedido #${escapeHtml(order.order_number)}</h1><p><b>${escapeHtml(order.customer_name)}</b><br>${escapeHtml(order.customer_email)}<br>${escapeHtml(order.customer_phone)}</p><table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table><p><b>Status:</b> ${escapeHtml(statusLabels[order.status] ?? order.status)}<br><b>Pagamento:</b> ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(order.payment_status === "paid" ? "Pago" : "Pendente")}<br><b>Retirada:</b> ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</p>${button}</div>`;
-  const text = `OLI Vinhos - homologação\nPedido #${order.order_number}\nCliente: ${order.customer_name}\nTotal: ${money(order.total)}\nStatus: ${statusLabels[order.status] ?? order.status}${action && actionUrl ? `\n${actionLabels[action]}: ${actionUrl}` : "\nFluxo concluído."}`;
-  return { subject: `[Homologação] Pedido OLI #${order.order_number} — ${statusLabels[order.status] ?? order.status}`, html, text };
+  const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">${environmentBrand()}</p><h1>Pedido #${escapeHtml(order.order_number)}</h1><p><b>${escapeHtml(order.customer_name)}</b><br>${escapeHtml(order.customer_email)}<br>${escapeHtml(order.customer_phone)}</p><table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table><p><b>Status:</b> ${escapeHtml(statusLabels[order.status] ?? order.status)}<br><b>Pagamento:</b> ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(order.payment_status === "paid" ? "Pago" : "Pendente")}<br><b>Retirada:</b> ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</p>${button}</div>`;
+  const text = `${environmentText()}\nPedido #${order.order_number}\nCliente: ${order.customer_name}\nTotal: ${money(order.total)}\nStatus: ${statusLabels[order.status] ?? order.status}${action && actionUrl ? `\n${actionLabels[action]}: ${actionUrl}` : "\nFluxo concluído."}`;
+  return { subject: environmentSubject(`Pedido OLI #${order.order_number} — ${statusLabels[order.status] ?? order.status}`), html, text };
 }

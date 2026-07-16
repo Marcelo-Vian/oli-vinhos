@@ -28,12 +28,13 @@ type ActionResult = ActionInfo & {
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
 const endpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/order-action` : "";
+const isProduction = import.meta.env.VITE_APP_ENV === "production";
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function OrderActionPage() {
   const token = new URLSearchParams(window.location.search).get("token") ?? "";
   const configurationError = !endpoint || !token
-    ? { ok: false, message: "O link está incompleto ou a homologação não foi configurada." }
+    ? { ok: false, message: "O link está incompleto ou o ambiente não foi configurado." }
     : null;
   const [info, setInfo] = useState<ActionInfo | null>(configurationError);
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -74,7 +75,7 @@ function OrderActionPage() {
   const content = result ?? info;
   return <main className="action-card">
     <div className="action-brand">OLI VINHOS</div>
-    <div className="action-test">Ambiente de homologação</div>
+    {!isProduction && <div className="action-test">Ambiente de homologação</div>}
     {!content ? <div className="action-loading" role="status"><i/> Consultando pedido…</div>
       : result?.ok && result.completed ? <>
         <div className="action-success">✓</div>
