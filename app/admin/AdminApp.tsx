@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowLeft, CircleAlert, ClipboardList, Edit3, Eye, EyeOff, ImageUp, KeyRound, LogOut, Package, Plus, RefreshCw, Search, Trash2, UserPlus, Users, Wine, X } from "lucide-react";
+import { ArrowLeft, Banknote, Check, CircleAlert, ClipboardList, Edit3, Eye, EyeOff, ImageUp, KeyRound, LogOut, Package, Plus, QrCode, RefreshCw, Search, Star, Trash2, UserPlus, Users, Wine, X } from "lucide-react";
 import { STORE_CONFIG } from "../data/store-config";
-import type { CustomerOrder, CustomerProfile, OrderStatus, WineProduct } from "../data/types";
+import type { CustomerOrder, CustomerProfile, OrderStatus, PaymentStatus, ProductReview, ReviewStatus, WineProduct } from "../data/types";
 import { hasSupabaseConfig, supabase } from "../lib/supabase";
 import { assetUrl, sitePath } from "../lib/paths";
 
@@ -12,7 +12,9 @@ const blank: Partial<WineProduct> = { name: "", slug: "", producer: "", country:
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 const orderStatusLabel: Record<OrderStatus, string> = { pending: "Pendente", confirmed: "Confirmado", preparing: "Em separação", ready: "Pronto para retirada", delivered: "Entregue", canceled: "Cancelado" };
-const orderStatuses = Object.keys(orderStatusLabel) as OrderStatus[];
+const orderStatuses: OrderStatus[] = ["pending", "preparing", "ready", "delivered", "canceled"];
+const paymentStatusLabel: Record<PaymentStatus, string> = { pending: "Pendente", paid: "Pago", expired: "Expirado", refunded: "Estornado", canceled: "Cancelado" };
+const paymentStatuses = Object.keys(paymentStatusLabel) as PaymentStatus[];
 
 export default function AdminApp() {
   const [session, setSession] = useState<Session | null>(null);
@@ -30,13 +32,16 @@ export default function AdminApp() {
   const [savingProduct, setSavingProduct] = useState(false);
   const [changingPasswordBusy, setChangingPasswordBusy] = useState(false);
   const [adminCreationFeedback, setAdminCreationFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-  const [section, setSection] = useState<"products" | "orders" | "customers" | "admins">("products");
+  const [section, setSection] = useState<"products" | "orders" | "customers" | "reviews" | "admins">("products");
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [orderFilter, setOrderFilter] = useState<"all" | OrderStatus>("all");
   const [selectedOrder, setSelectedOrder] = useState<CustomerOrder | null>(null);
   const [adminAllowed, setAdminAllowed] = useState<boolean | null>(null);
   const [currentRole, setCurrentRole] = useState<"master" | "admin" | "manager" | null>(null);
+  const [workflowEmail, setWorkflowEmail] = useState("marcelo.vian@gmail.com");
+  const [workflowEmailBusy, setWorkflowEmailBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -60,7 +65,7 @@ export default function AdminApp() {
     const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
     const role = data?.role === "master" || data?.role === "admin" || data?.role === "manager" ? data.role : null;
     const allowed = role !== null; setCurrentRole(role); setAdminAllowed(allowed);
-    if (allowed) await Promise.all([loadProducts(), loadOrders(), loadCustomers()]);
+    if (allowed) await Promise.all([loadProducts(), loadOrders(), loadCustomers(), loadReviews(), loadWorkflowEmail()]);
   }
 
   async function loadProducts(notify = false) {
@@ -72,20 +77,71 @@ export default function AdminApp() {
   }
   async function loadOrders(notify = false) {
     if (!supabase) return;
-    const { data, error } = await supabase.from("orders").select("*, order_items(*), order_status_history(*)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select("*, order_items(*), order_status_history(*), payment_status_history(*)").order("created_at", { ascending: false });
     if (error) setMessage({ type: "error", text: "Não foi possível carregar os pedidos." });
-    else { setOrders((data ?? []).map((order) => ({ ...order, order_items: order.order_items ?? [], order_status_history: [...(order.order_status_history ?? [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) })) as CustomerOrder[]); if (notify) setMessage({ type: "ok", text: "Pedidos atualizados." }); }
+    else { setOrders((data ?? []).map((order) => ({ ...order, order_items: order.order_items ?? [], order_status_history: [...(order.order_status_history ?? [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()), payment_status_history: [...(order.payment_status_history ?? [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) })) as CustomerOrder[]); if (notify) setMessage({ type: "ok", text: "Pedidos atualizados." }); }
+  }
+  async function loadReviews(notify = false) {
+    if (!supabase) return;
+    const { data, error } = await supabase.from("product_reviews").select("*, products(name)").order("created_at", { ascending: false });
+    if (error) setMessage({ type: "error", text: "Não foi possível carregar as avaliações." });
+    else { setReviews((data ?? []) as ProductReview[]); if (notify) setMessage({ type: "ok", text: "Avaliações atualizadas." }); }
   }
   async function loadCustomers(notify = false) {
     if (!supabase) return;
     const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
     if (data) { setCustomers(data as CustomerProfile[]); if (notify) setMessage({ type: "ok", text: "Cadastros atualizados." }); }
   }
+  async function loadWorkflowEmail() {
+    if (!supabase) return;
+    const { data } = await supabase.rpc("get_workflow_email");
+    if (typeof data === "string" && data) setWorkflowEmail(data);
+  }
+  async function saveWorkflowEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || workflowEmailBusy || (currentRole !== "master" && currentRole !== "admin")) return;
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get("workflowEmail") ?? "").trim().toLowerCase();
+    setWorkflowEmailBusy(true);
+    const { data: saved, error } = await supabase.rpc("set_workflow_email", { p_email: email });
+    setWorkflowEmailBusy(false);
+    if (error) setMessage({ type: "error", text: error.message });
+    else {
+      setWorkflowEmail(String(saved));
+      setMessage({ type: "ok", text: `E-mail do workflow alterado para ${saved}.` });
+    }
+  }
   async function changeOrderStatus(order: CustomerOrder, nextStatus: OrderStatus) {
     if (!supabase) return;
     const { error } = await supabase.rpc("set_order_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
     if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pedido #${order.order_number}.` });
-    else { setMessage({ type: "ok", text: `Pedido #${order.order_number} atualizado para ${orderStatusLabel[nextStatus]}.` }); await loadOrders(); }
+    else {
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "status" } });
+      const notified = !notification.error && notification.data?.sent;
+      setMessage(notified
+        ? { type: "ok", text: `Pedido #${order.order_number} atualizado para ${orderStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
+        : { type: "error", text: `Pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
+      await loadOrders();
+    }
+  }
+  async function changePaymentStatus(order: CustomerOrder, nextStatus: PaymentStatus) {
+    if (!supabase) return;
+    const { error } = await supabase.rpc("set_payment_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
+    if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pagamento do pedido #${order.order_number}.` });
+    else {
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "payment" } });
+      const notified = !notification.error && notification.data?.sent;
+      setMessage(notified
+        ? { type: "ok", text: `Pagamento do pedido #${order.order_number}: ${paymentStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
+        : { type: "error", text: `O pagamento do pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
+      await loadOrders();
+    }
+  }
+  async function moderateReview(review: ProductReview, status: ReviewStatus) {
+    if (!supabase) return;
+    const { error } = await supabase.rpc("moderate_product_review", { p_review_id: review.id, p_status: status });
+    if (error) setMessage({ type: "error", text: "Não foi possível atualizar a avaliação." });
+    else { setMessage({ type: "ok", text: status === "approved" ? "Avaliação publicada." : status === "rejected" ? "Avaliação rejeitada." : "Avaliação devolvida para análise." }); await loadReviews(); }
   }
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!supabase) return; const data = new FormData(event.currentTarget); setLoading(true); setMessage(null);
@@ -234,10 +290,30 @@ export default function AdminApp() {
   const roleLabel = currentRole === "master" ? "MASTER" : currentRole === "admin" ? "ADMIN" : "GESTOR";
   const roleDescription = currentRole === "master" ? "Proprietário MASTER" : currentRole === "admin" ? "Administrador geral" : "Gestor da loja";
 
-  return <div className="admin-shell"><aside className="admin-nav"><div className="admin-logo"><Wine/> OLI <span>{roleLabel}</span></div><nav><button className={section === "products" ? "active" : ""} onClick={() => setSection("products")}><Package/> Produtos</button><button className={section === "orders" ? "active" : ""} onClick={() => setSection("orders")}><ClipboardList/> Pedidos</button><button className={section === "customers" ? "active" : ""} onClick={() => setSection("customers")}><Users/> Clientes</button>{canControlAccess&&<button className={section === "admins" ? "active" : ""} onClick={() => setSection("admins")}><UserPlus/> Equipe e acessos</button>}<a href={sitePath("/")} target="_blank"><Wine/> Ver loja</a></nav><div className="admin-user"><small>{roleDescription}</small><span>{session.user.email}</span>{canControlAccess&&<button onClick={() => { setAdminCreationFeedback(null); setCreatingAdmin(true); }}><UserPlus/> Novo acesso</button>}<button onClick={() => setChangingPassword(true)}><KeyRound/> Alterar minha senha</button><button onClick={() => supabase?.auth.signOut()}><LogOut/> Sair</button></div></aside><main className="admin-main">{message && <AdminMessage message={message}/>} {section === "products" && <ProductsSection products={products} visible={visible} loading={loading} query={query} status={status} setQuery={setQuery} setStatus={setStatus} onRefresh={()=>loadProducts(true)} onNew={() => setEditing({ ...blank })} onEdit={(product) => setEditing({ ...product })} onRemove={removeProduct} onToggle={toggleProduct}/>} {section === "orders" && <OrdersSection orders={orders} filter={orderFilter} setFilter={setOrderFilter} onRefresh={()=>loadOrders(true)} onSelect={setSelectedOrder} onStatus={changeOrderStatus}/>} {section === "customers" && <CustomersSection customers={customers} orders={orders} canEdit={Boolean(currentRole)} onEdit={(customer)=>{setUserEditFeedback(null);setEditingUser(customer);}} onRefresh={async () => { await Promise.all([loadCustomers(), loadOrders()]); setMessage({type:"ok",text:"Clientes atualizados."}); }}/>} {section === "admins" && canControlAccess && <AdminsSection members={customers.filter((profile)=>profile.role==="master"||profile.role==="admin"||profile.role==="manager")} currentUserId={session.user.id} currentRole={currentRole} onEdit={(member)=>{setUserEditFeedback(null);setEditingUser(member);}} onRefresh={()=>loadCustomers(true)} onCreate={()=>{ setAdminCreationFeedback(null); setCreatingAdmin(true); }} onReset={resetAdminPassword} onRemove={removeAdmin} onRole={changeStaffRole}/>}</main>{editing&&<ProductForm product={editing} busy={savingProduct} setProduct={setEditing} onClose={()=>{if(!savingProduct)setEditing(null);}} onSave={saveProduct} onMessage={setMessage}/>} {changingPassword&&<PasswordForm busy={changingPasswordBusy} onClose={()=>{if(!changingPasswordBusy)setChangingPassword(false);}} onSave={changePassword}/>} {creatingAdmin&&<CreateAdminForm canCreateAdmin={canCreateAdmin} feedback={adminCreationFeedback} busy={creatingAdminBusy} onClose={()=>{ if (!creatingAdminBusy) { setCreatingAdmin(false); setAdminCreationFeedback(null); } }} onSave={createAdmin}/>} {editingUser&&<EditUserForm user={editingUser} callerRole={currentRole} feedback={userEditFeedback} busy={editingUserBusy} onClose={()=>{if(!editingUserBusy){setEditingUser(null);setUserEditFeedback(null);}}} onSave={updateUser}/>} {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onStatus={async (next) => { await changeOrderStatus(selectedOrder,next); setSelectedOrder(null); }}/>}</div>;
+  return <div className="admin-shell">
+    <aside className="admin-nav"><div className="admin-logo"><Wine/> OLI <span>{roleLabel}</span></div><nav>
+      <button className={section === "products" ? "active" : ""} onClick={() => setSection("products")}><Package/> Produtos</button>
+      <button className={section === "orders" ? "active" : ""} onClick={() => setSection("orders")}><ClipboardList/> Pedidos</button>
+      <button className={section === "customers" ? "active" : ""} onClick={() => setSection("customers")}><Users/> Clientes</button>
+      <button className={section === "reviews" ? "active" : ""} onClick={() => setSection("reviews")}><Star/> Avaliações</button>
+      {canControlAccess&&<button className={section === "admins" ? "active" : ""} onClick={() => setSection("admins")}><UserPlus/> Equipe e acessos</button>}
+      <a href={sitePath("/")} target="_blank"><Wine/> Ver loja</a>
+    </nav><div className="admin-user"><small>{roleDescription}</small><span>{session.user.email}</span>{canControlAccess&&<button onClick={() => { setAdminCreationFeedback(null); setCreatingAdmin(true); }}><UserPlus/> Novo acesso</button>}<button onClick={() => setChangingPassword(true)}><KeyRound/> Alterar minha senha</button><button onClick={() => supabase?.auth.signOut()}><LogOut/> Sair</button></div></aside>
+    <main className="admin-main">
+      {message && <AdminMessage message={message}/>}
+      {section === "products" && <ProductsSection products={products} visible={visible} loading={loading} query={query} status={status} setQuery={setQuery} setStatus={setStatus} onRefresh={()=>loadProducts(true)} onNew={() => setEditing({ ...blank })} onEdit={(product) => setEditing({ ...product })} onRemove={removeProduct} onToggle={toggleProduct}/>}
+      {section === "orders" && <OrdersSection orders={orders} filter={orderFilter} setFilter={setOrderFilter} onRefresh={()=>loadOrders(true)} onSelect={setSelectedOrder} onStatus={changeOrderStatus}/>}
+      {section === "customers" && <CustomersSection customers={customers} orders={orders} canEdit={Boolean(currentRole)} onEdit={(customer)=>{setUserEditFeedback(null);setEditingUser(customer);}} onRefresh={async () => { await Promise.all([loadCustomers(), loadOrders()]); setMessage({type:"ok",text:"Clientes atualizados."}); }}/>}
+      {section === "reviews" && <ReviewsSection reviews={reviews} onRefresh={()=>loadReviews(true)} onModerate={moderateReview}/>}
+      {section === "admins" && canControlAccess && <><WorkflowEmailSettings email={workflowEmail} canEdit={canCreateAdmin} busy={workflowEmailBusy} onSave={saveWorkflowEmail}/><AdminsSection members={customers.filter((profile)=>profile.role==="master"||profile.role==="admin"||profile.role==="manager")} currentUserId={session.user.id} currentRole={currentRole} onEdit={(member)=>{setUserEditFeedback(null);setEditingUser(member);}} onRefresh={()=>loadCustomers(true)} onCreate={()=>{ setAdminCreationFeedback(null); setCreatingAdmin(true); }} onReset={resetAdminPassword} onRemove={removeAdmin} onRole={changeStaffRole}/></>}</main>
+    {editing&&<ProductForm product={editing} busy={savingProduct} setProduct={setEditing} onClose={()=>{if(!savingProduct)setEditing(null);}} onSave={saveProduct} onMessage={setMessage}/>} {changingPassword&&<PasswordForm busy={changingPasswordBusy} onClose={()=>{if(!changingPasswordBusy)setChangingPassword(false);}} onSave={changePassword}/>} {creatingAdmin&&<CreateAdminForm canCreateAdmin={canCreateAdmin} feedback={adminCreationFeedback} busy={creatingAdminBusy} onClose={()=>{ if (!creatingAdminBusy) { setCreatingAdmin(false); setAdminCreationFeedback(null); } }} onSave={createAdmin}/>} {editingUser&&<EditUserForm user={editingUser} callerRole={currentRole} feedback={userEditFeedback} busy={editingUserBusy} onClose={()=>{if(!editingUserBusy){setEditingUser(null);setUserEditFeedback(null);}}} onSave={updateUser}/>} {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onStatus={async (next) => { await changeOrderStatus(selectedOrder,next); setSelectedOrder(null); }} onPayment={async (next) => { await changePaymentStatus(selectedOrder,next); setSelectedOrder(null); }}/>}</div>;
 }
 function AdminGate({ children }: { children: React.ReactNode }) { return <main className="admin-gate">{children}</main>; }
 function AdminMessage({ message }: { message: { type: "ok"|"error"; text:string } }) { return <div className={`admin-message ${message.type}`}><CircleAlert/>{message.text}</div>; }
+
+function WorkflowEmailSettings({ email, canEdit, busy, onSave }: { email:string; canEdit:boolean; busy:boolean; onSave:(event:React.FormEvent<HTMLFormElement>)=>void }) {
+  return <section className="workflow-settings"><div><p>Notificações operacionais</p><h2>E-mail do workflow</h2><small>Recebe novos pedidos, próximas etapas e avaliações para aprovar ou rejeitar.</small></div><form onSubmit={onSave}><label>E-mail responsável<input type="email" name="workflowEmail" defaultValue={email} key={email} required readOnly={!canEdit} disabled={busy}/></label><button className="primary-button" type="submit" disabled={!canEdit||busy}>{busy?"Salvando…":"Salvar e-mail"}</button></form><p className="workflow-permission">{canEdit?"MASTER e Administrador geral podem alterar esta configuração.":"Somente MASTER e Administrador geral podem alterar. Você pode apenas consultar."}</p></section>;
+}
 
 function RevealablePassword({ name, minLength, required = false, autoComplete, disabled = false }: { name:string; minLength?:number; required?:boolean; autoComplete?:string; disabled?:boolean }) {
   const [visible,setVisible]=useState(false);
@@ -250,7 +326,12 @@ function ProductsSection({ products, visible, loading, query, status, setQuery, 
 
 function OrdersSection({ orders, filter, setFilter, onRefresh, onSelect, onStatus }: { orders:CustomerOrder[]; filter:"all"|OrderStatus; setFilter:(value:"all"|OrderStatus)=>void; onRefresh:()=>void; onSelect:(order:CustomerOrder)=>void; onStatus:(order:CustomerOrder,status:OrderStatus)=>void }) {
   const visible = filter === "all" ? orders : orders.filter((order) => order.status === filter);
-  return <><header><div><p>Operação da loja</p><h1>Pedidos</h1></div><button className="secondary-action" onClick={onRefresh}><RefreshCw/> Atualizar</button></header><div className="admin-stats"><div><span>Total</span><b>{orders.length}</b></div><div><span>Pendentes</span><b>{orders.filter(o=>o.status==="pending").length}</b></div><div><span>Prontos</span><b>{orders.filter(o=>o.status==="ready").length}</b></div><div><span>Entregues</span><b>{orders.filter(o=>o.status==="delivered").length}</b></div></div><div className="order-filters"><button className={filter === "all" ? "active" : ""} onClick={()=>setFilter("all")}>Todos</button>{orderStatuses.map((value)=><button key={value} className={filter === value ? "active" : ""} onClick={()=>setFilter(value)}>{orderStatusLabel[value]}</button>)}</div><div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Retirada</th><th>Total</th><th>Status</th><th/></tr></thead><tbody>{visible.map((order)=><tr key={order.id}><td><strong>#{order.order_number}</strong><small>{dateTime.format(new Date(order.created_at))}</small></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}<br/>{order.customer_phone}</small></td><td>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")}<small>{order.pickup_time.slice(0,5)}</small></td><td><strong>{money.format(Number(order.total))}</strong><small>{order.order_items.reduce((sum,item)=>sum+item.quantity,0)} item(ns)</small></td><td><select className={`order-status-select ${order.status}`} value={order.status} onChange={(event)=>onStatus(order,event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></td><td><button className="view-order" onClick={()=>onSelect(order)} aria-label={`Ver pedido ${order.order_number}`}><Eye/></button></td></tr>)}</tbody></table>{visible.length===0&&<p className="admin-empty">Nenhum pedido neste status.</p>}</div></>;
+  return <><header><div><p>Operação da loja</p><h1>Pedidos</h1></div><button className="secondary-action" onClick={onRefresh}><RefreshCw/> Atualizar</button></header><div className="admin-stats"><div><span>Total</span><b>{orders.length}</b></div><div><span>Pendentes</span><b>{orders.filter(o=>o.status==="pending").length}</b></div><div><span>Pagamentos pendentes</span><b>{orders.filter(o=>o.payment_status==="pending").length}</b></div><div><span>Entregues</span><b>{orders.filter(o=>o.status==="delivered").length}</b></div></div><div className="order-filters"><button className={filter === "all" ? "active" : ""} onClick={()=>setFilter("all")}>Todos</button>{orderStatuses.map((value)=><button key={value} className={filter === value ? "active" : ""} onClick={()=>setFilter(value)}>{orderStatusLabel[value]}</button>)}</div><div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Retirada</th><th>Total</th><th>Pagamento</th><th>Status</th><th/></tr></thead><tbody>{visible.map((order)=><tr key={order.id}><td><strong>#{order.order_number}</strong><small>{dateTime.format(new Date(order.created_at))}</small></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}<br/>{order.customer_phone}</small></td><td>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")}<small>{order.pickup_time.slice(0,5)}</small></td><td><strong>{money.format(Number(order.total))}</strong><small>{order.order_items.reduce((sum,item)=>sum+item.quantity,0)} item(ns)</small></td><td><span className={`payment-pill ${order.payment_status}`}>{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}{order.payment_method === "pix" ? "Pix" : "Dinheiro"} • {paymentStatusLabel[order.payment_status]}</span></td><td><select className={`order-status-select ${order.status}`} value={order.status} onChange={(event)=>onStatus(order,event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></td><td><button className="view-order" onClick={()=>onSelect(order)} aria-label={`Ver pedido ${order.order_number}`}><Eye/></button></td></tr>)}</tbody></table>{visible.length===0&&<p className="admin-empty">Nenhum pedido neste status.</p>}</div></>;
+}
+
+function ReviewsSection({ reviews, onRefresh, onModerate }: { reviews:ProductReview[]; onRefresh:()=>void; onModerate:(review:ProductReview,status:ReviewStatus)=>void }) {
+  const productName=(review:ProductReview)=>((review as ProductReview & {products?:{name?:string}}).products?.name ?? "Produto");
+  return <><header><div><p>Relacionamento</p><h1>Avaliações</h1></div><button className="secondary-action" onClick={onRefresh}><RefreshCw/> Atualizar</button></header><div className="admin-stats"><div><span>Total</span><b>{reviews.length}</b></div><div><span>Em análise</span><b>{reviews.filter(r=>r.status==="pending").length}</b></div><div><span>Publicadas</span><b>{reviews.filter(r=>r.status==="approved").length}</b></div><div><span>Rejeitadas</span><b>{reviews.filter(r=>r.status==="rejected").length}</b></div></div><div className="admin-table-wrap"><table className="admin-table reviews-table"><thead><tr><th>Cliente</th><th>Produto</th><th>Nota</th><th>Comentário</th><th>Status</th><th>Ações</th></tr></thead><tbody>{reviews.map((review)=><tr key={review.id}><td><strong>{review.customer_name}</strong><small>{dateTime.format(new Date(review.created_at))}</small></td><td><strong>{productName(review)}</strong></td><td><span className="review-stars">{"★".repeat(review.rating)}{"☆".repeat(5-review.rating)}</span></td><td>{review.comment||"Sem comentário"}</td><td><span className={`review-status ${review.status}`}>{review.status==="approved"?"Publicada":review.status==="rejected"?"Rejeitada":"Em análise"}</span></td><td><div className="review-buttons"><button onClick={()=>onModerate(review,"approved")} disabled={review.status==="approved"} title="Publicar"><Check/></button><button onClick={()=>onModerate(review,"rejected")} disabled={review.status==="rejected"} title="Rejeitar"><X/></button>{review.status!=="pending"&&<button onClick={()=>onModerate(review,"pending")} title="Voltar para análise"><RefreshCw/></button>}</div></td></tr>)}</tbody></table>{reviews.length===0&&<p className="admin-empty">Nenhuma avaliação recebida.</p>}</div></>;
 }
 
 function CustomersSection({ customers, orders, canEdit, onEdit, onRefresh }: { customers:CustomerProfile[]; orders:CustomerOrder[]; canEdit:boolean; onEdit:(customer:CustomerProfile)=>void; onRefresh:()=>void }) {
@@ -263,8 +344,8 @@ function AdminsSection({ members, currentUserId, currentRole, onEdit, onRefresh,
   return <><header><div><p>Controle de acesso</p><h1>Equipe e acessos</h1></div><button className="primary-button" onClick={onCreate}><UserPlus/> Novo acesso</button></header><div className="admin-stats admin-access-stats"><div><span>Acessos ativos</span><b>{members.length}</b></div><div><span>MASTER</span><b>{members.filter(member=>member.role==="master").length}</b></div><div><span>Administradores gerais</span><b>{members.filter(member=>member.role==="admin").length}</b></div><div><span>Gestores da loja</span><b>{members.filter(member=>member.role==="manager").length}</b></div></div><div className="admin-toolbar admin-access-toolbar"><p>Hierarquia: MASTER controla todos; administrador controla gestores e clientes; gestor controla clientes e pode cadastrar outro gestor.</p><button onClick={onRefresh} aria-label="Atualizar"><RefreshCw/></button></div><div className="admin-table-wrap"><table className="admin-table customers-table"><thead><tr><th>Membro da equipe</th><th>Conta criada em</th><th>Perfil de acesso</th><th>Status</th><th aria-label="Ações"/></tr></thead><tbody>{members.map((member)=>{const protectedMember=member.role==="master";const canAct=rank[currentRole]>rank[member.role];return <tr key={member.id}><td><strong>{member.full_name || member.email || "Membro da equipe"}</strong><small>{member.email || "E-mail não informado"}</small></td><td>{new Date(member.created_at).toLocaleDateString("pt-BR")}</td><td><select className="staff-role-select" value={member.role} disabled={member.id===currentUserId||protectedMember||!canAct} onChange={(event)=>onRole(member,event.target.value as "admin"|"manager")}>{protectedMember&&<option value="master">MASTER — proprietário</option>}{currentRole==="master"&&<option value="admin">Administrador geral</option>}<option value="manager">Gestor da loja</option></select></td><td><span className={`admin-access-badge ${protectedMember?"master":""}`}>{protectedMember?"Protegido":member.id===currentUserId?"Sua conta":"Ativo"}</span></td><td><div className="row-actions"><button onClick={()=>onEdit(member)} aria-label={`Editar ${member.email}`} title={canAct?"Editar usuário":"Somente um perfil superior pode editar"} disabled={!canAct}><Edit3/></button><button onClick={()=>onReset(member)} aria-label={`Alterar senha de ${member.email}`} title={canAct?"Definir senha temporária":"Somente um perfil superior pode alterar"} disabled={!canAct}><KeyRound/></button><button onClick={()=>onRemove(member)} aria-label={`Remover ${member.email}`} title={canAct?"Remover acesso":"Somente um perfil superior pode remover"} disabled={member.id===currentUserId||!canAct}><Trash2/></button></div></td></tr>})}</tbody></table>{members.length===0&&<p className="admin-empty">Nenhum acesso da equipe encontrado.</p>}</div></>;
 }
 
-function OrderDetail({ order, onClose, onStatus }: { order:CustomerOrder; onClose:()=>void; onStatus:(status:OrderStatus)=>void }) {
-  return <div className="admin-form-overlay"><div className="order-detail"><div className="form-head"><div><small>PEDIDO</small><h2>#{order.order_number}</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="order-detail-body"><section><h3>Cliente e retirada</h3><p><b>{order.customer_name}</b><br/>{order.customer_email}<br/>{order.customer_phone}</p><p>Retirada: <b>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</b></p>{order.notes&&<p>Observações: {order.notes}</p>}</section><section><h3>Itens</h3>{order.order_items.map((item)=><div className="order-detail-item" key={item.id}><img src={assetUrl(item.image_url)} alt=""/><span><b>{item.product_name}</b><small>{item.quantity} × {money.format(Number(item.unit_price))}</small></span><strong>{money.format(Number(item.line_total))}</strong></div>)}<div className="order-detail-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div></section><section><h3>Histórico</h3><div className="admin-timeline">{order.order_status_history.map((entry)=><div key={entry.id}><i/><span><b>{orderStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section></div><div className="form-footer"><select value={order.status} onChange={(event)=>onStatus(event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select><button type="button" onClick={onClose}>Fechar</button></div></div></div>;
+function OrderDetail({ order, onClose, onStatus, onPayment }: { order:CustomerOrder; onClose:()=>void; onStatus:(status:OrderStatus)=>void; onPayment:(status:PaymentStatus)=>void }) {
+  return <div className="admin-form-overlay"><div className="order-detail"><div className="form-head"><div><small>PEDIDO</small><h2>#{order.order_number}</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="order-detail-body"><section><h3>Cliente e retirada</h3><p><b>{order.customer_name}</b><br/>{order.customer_email}<br/>{order.customer_phone}</p><p>Retirada: <b>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</b></p>{order.notes&&<p>Observações: {order.notes}</p>}</section><section><h3>Pagamento</h3><p className="payment-detail">{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}<span><b>{order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"}</b><small>{paymentStatusLabel[order.payment_status]}{order.payment_provider==="homologation"?" • Homologação":""}</small></span></p>{order.pix_copy_paste&&<code className="pix-reference">{order.pix_copy_paste}</code>}<div className="admin-timeline">{order.payment_status_history?.map((entry)=><div key={entry.id}><i/><span><b>{paymentStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section><section><h3>Itens</h3>{order.order_items.map((item)=><div className="order-detail-item" key={item.id}><img src={assetUrl(item.image_url)} alt=""/><span><b>{item.product_name}</b><small>{item.quantity} × {money.format(Number(item.unit_price))}</small></span><strong>{money.format(Number(item.line_total))}</strong></div>)}<div className="order-detail-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div></section><section><h3>Histórico do pedido</h3><div className="admin-timeline">{order.order_status_history.map((entry)=><div key={entry.id}><i/><span><b>{orderStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section></div><div className="form-footer order-controls"><label>Pagamento<select value={order.payment_status} onChange={(event)=>onPayment(event.target.value as PaymentStatus)}>{paymentStatuses.map((value)=><option key={value} value={value}>{paymentStatusLabel[value]}</option>)}</select></label><label>Pedido<select value={order.status} onChange={(event)=>onStatus(event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></label><button type="button" onClick={onClose}>Fechar</button></div></div></div>;
 }
 
 function PasswordForm({ busy, onClose, onSave }: { busy:boolean; onClose:()=>void; onSave:(e:React.FormEvent<HTMLFormElement>)=>void }) {
