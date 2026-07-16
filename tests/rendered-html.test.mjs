@@ -110,6 +110,15 @@ test("tela pública de confirmação usa a API segura sem expor HTML pela funç�
   assert.match(viteConfig, /reviewAction/);
 });
 
+test("cliente pode solicitar e concluir a redefinição de senha", async () => {
+  const store = await readFile(new URL("../app/components/StoreApp.tsx", import.meta.url), "utf8");
+  assert.match(store, /Esqueci minha senha/);
+  assert.match(store, /resetPasswordForEmail/);
+  assert.match(store, /PASSWORD_RECOVERY/);
+  assert.match(store, /Senha redefinida com sucesso/);
+  assert.match(store, /auth\.updateUser\(\{ password \}\)/);
+});
+
 test("aplica defesa em profundidade na hospedagem e nos endpoints de notificação", async () => {
   const [headers, orderEmail, reviewEmail, adminFunction, hardeningMigration, deployWorkflow] = await Promise.all([
     readFile(new URL("../public/_headers", import.meta.url), "utf8"),
