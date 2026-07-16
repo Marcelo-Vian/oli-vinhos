@@ -1,13 +1,13 @@
 # OLI Vinhos
 
-Loja virtual responsiva para o catálogo 2026 da OLI Vinhos. O visitante pesquisa e filtra os rótulos, vê todos os detalhes, monta o carrinho e envia o pedido pelo WhatsApp. Não há pagamento, frete ou entrega: todo pedido é para retirada e depende da confirmação da loja.
+Loja virtual responsiva para o catálogo 2026 da OLI Vinhos. O visitante pesquisa e filtra os rótulos, monta o carrinho, registra o pedido e acompanha cada etapa. O pagamento é manual por Pix ou dinheiro e todo pedido é somente para retirada.
 
 ## Tecnologias
 
 - React, TypeScript, Vite e Vinext
 - Supabase Database, Auth e Storage
 - CSS responsivo sem tema genérico
-- GitHub Actions e GitHub Pages
+- GitHub Actions e Cloudflare Pages
 
 O site continua utilizável caso o Supabase falhe: os 16 produtos verificados no PDF são carregados como catálogo de contingência. O carrinho é salvo no `localStorage`.
 
@@ -62,20 +62,21 @@ Nome, WhatsApp e e-mail ficam centralizados em `app/data/store-config.ts`. Não 
 
 O catálogo de contingência fica em `app/data/products.ts`. As imagens extraídas do PDF estão em `public/products`. Consulte `PRODUCTS_REVIEW.md` para campos ausentes e pendências.
 
-## Publicação no GitHub Pages
+## Publicação no Cloudflare Pages
 
-1. Crie um repositório público e envie a branch `main`.
-2. Em **Settings → Pages**, escolha **GitHub Actions** como fonte.
-3. Em **Settings → Secrets and variables → Actions**:
+1. Crie o projeto Direct Upload `oli-vinhos` no Cloudflare Pages.
+2. Em **Settings → Secrets and variables → Actions**:
    - crie a variável `VITE_SUPABASE_URL`;
    - crie o secret `VITE_SUPABASE_PUBLISHABLE_KEY` (é uma chave pública, mas o secret evita exposição nos logs).
-4. Execute manualmente o workflow **Publicar OLI Vinhos em producao** e informe
+   - crie os secrets `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN`, com o token limitado à edição do Pages.
+3. Associe `olivinhos.aucaris.com` como domínio personalizado do projeto.
+4. Execute manualmente o workflow **Publicar OLI Vinhos em producao (Cloudflare)** e informe
    uma tag de versao que aponte para o estado atual da branch `main`.
 
 O workflow instala as dependências, executa lint, testes e o build estático antes
-de publicar `dist-pages`. A produção não é mais publicada automaticamente por
-um push. O caminho-base do repositório é calculado pelo próprio workflow,
-incluindo imagens e `/admin/`.
+de publicar `dist-pages`. A produção não é publicada automaticamente por um
+push. O repositório pode permanecer privado; o site continua público somente
+pelo domínio configurado.
 
 ## Desenvolvimento, homologação e versões
 
@@ -88,10 +89,9 @@ de produção deve ter uma tag (`v1.1.0`, `v1.1.1` etc.) e aprovação manual. O
 procedimento completo e os testes obrigatórios estão em
 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
 
-O repositório pode continuar público enquanto a produção estiver no GitHub
-Pages gratuito. Senhas, tokens, `service_role`, chaves de pagamento e arquivos
-`.env` nunca devem ser versionados. Se a hospedagem pública for migrada, a
-visibilidade do repositório poderá ser alterada sem mudar esse processo.
+Senhas, tokens, `service_role`, chaves de pagamento e arquivos `.env` nunca
+devem ser versionados. O build público contém apenas a chave `publishable` do
+Supabase; toda autorização real continua protegida por RLS e funções do banco.
 
 ## Testes
 
@@ -105,8 +105,9 @@ O conjunto cobre renderização do catálogo e pode ser ampliado com um projeto 
 ## Regras preservadas
 
 - preços idênticos ao PDF;
-- pedido somente pelo WhatsApp;
-- sem pagamento, frete ou entrega;
+- pedido registrado e acompanhado na conta do cliente;
+- pagamento manual por Pix ou dinheiro, sem cartão;
+- sem frete ou entrega;
 - envio do pedido não reduz estoque;
 - nenhum dado de contato ou produto foi inventado;
 - nenhuma senha ou chave administrativa está no repositório.

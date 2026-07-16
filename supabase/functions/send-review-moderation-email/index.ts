@@ -19,6 +19,22 @@ export default {
     if (data.user_id !== callerId) return Response.json({ sent: false, message: "Acesso negado." }, { status: 403 });
     if (data.status !== "pending") return Response.json({ sent: false, message: "Esta avaliação já foi moderada." }, { status: 409 });
 
+    const { data: pendingAction, error: pendingActionError } = await context.supabaseAdmin
+      .from("review_email_actions")
+      .select("id")
+      .eq("review_id", reviewId)
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .limit(1)
+      .maybeSingle();
+    if (pendingActionError) {
+      console.error("send-review-moderation-email: falha ao verificar envio anterior", pendingActionError);
+      return Response.json({ sent: false, message: "Não foi possível validar a notificação." }, { status: 500 });
+    }
+    if (pendingAction) {
+      return Response.json({ sent: true, alreadySent: true });
+    }
+
     const managerEmail = await workflowRecipient(context.supabaseAdmin);
     const baseUrl = Deno.env.get("REVIEW_ACTION_BASE_URL") ?? `${Deno.env.get("SUPABASE_URL")}/functions/v1/review-action`;
     const approveUrl = await createReviewActionLink(context.supabaseAdmin, reviewId, "approve", managerEmail, baseUrl);

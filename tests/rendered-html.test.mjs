@@ -109,3 +109,27 @@ test("tela pública de confirmação usa a API segura sem expor HTML pela funç�
   assert.match(viteConfig, /orderAction/);
   assert.match(viteConfig, /reviewAction/);
 });
+
+test("aplica defesa em profundidade na hospedagem e nos endpoints de notificação", async () => {
+  const [headers, orderEmail, reviewEmail, adminFunction, hardeningMigration, deployWorkflow] = await Promise.all([
+    readFile(new URL("../public/_headers", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/send-order-email/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/send-review-moderation-email/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/create-admin/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260716170000_security_hardening.sql", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
+  ]);
+  assert.match(headers, /Content-Security-Policy:/);
+  assert.match(headers, /frame-ancestors 'none'/);
+  assert.match(headers, /Strict-Transport-Security:/);
+  assert.match(orderEmail, /\.is\("email_sent_at", null\)/);
+  assert.match(orderEmail, /alreadySent: true/);
+  assert.match(reviewEmail, /review_email_actions/);
+  assert.match(reviewEmail, /\.is\("used_at", null\)/);
+  assert.match(adminFunction, /maxRequestBytes/);
+  assert.match(hardeningMigration, /jsonb_array_length\(p_items\) > 50/);
+  assert.match(hardeningMigration, /created_at >= now\(\) - interval '1 hour'/);
+  assert.match(hardeningMigration, /comentário deve ter no máximo 1000 caracteres/);
+  assert.match(deployWorkflow, /wrangler@4 pages deploy/);
+  assert.doesNotMatch(deployWorkflow, /deploy-pages@/);
+});

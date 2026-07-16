@@ -317,7 +317,7 @@ function WorkflowEmailSettings({ email, canEdit, busy, onSave }: { email:string;
 
 function RevealablePassword({ name, minLength, required = false, autoComplete, disabled = false }: { name:string; minLength?:number; required?:boolean; autoComplete?:string; disabled?:boolean }) {
   const [visible,setVisible]=useState(false);
-  return <span className="revealable-password"><input name={name} type={visible?"text":"password"} minLength={minLength} required={required} autoComplete={autoComplete} disabled={disabled}/><button type="button" onClick={()=>setVisible((value)=>!value)} disabled={disabled} aria-label={visible?"Ocultar senha":"Revelar senha"} title={visible?"Ocultar senha":"Revelar senha"}>{visible?<EyeOff/>:<Eye/>}</button></span>;
+  return <span className="revealable-password"><input name={name} type={visible?"text":"password"} minLength={minLength} maxLength={128} required={required} autoComplete={autoComplete} disabled={disabled}/><button type="button" onClick={()=>setVisible((value)=>!value)} disabled={disabled} aria-label={visible?"Ocultar senha":"Revelar senha"} title={visible?"Ocultar senha":"Revelar senha"}>{visible?<EyeOff/>:<Eye/>}</button></span>;
 }
 
 function ProductsSection({ products, visible, loading, query, status, setQuery, setStatus, onRefresh, onNew, onEdit, onRemove, onToggle }: { products: WineProduct[]; visible: WineProduct[]; loading: boolean; query: string; status: string; setQuery:(value:string)=>void; setStatus:(value:string)=>void; onRefresh:()=>void; onNew:()=>void; onEdit:(product:WineProduct)=>void; onRemove:(product:WineProduct)=>void; onToggle:(product:WineProduct)=>void }) {
