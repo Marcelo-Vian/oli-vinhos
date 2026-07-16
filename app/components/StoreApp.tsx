@@ -1129,11 +1129,11 @@ function CheckoutModal({ total, cart, error, profile, email, submitting, onClose
           <div className="form-row">
             <label>
               Nome completo *
-              <input name="name" required autoFocus defaultValue={profile?.full_name ?? ""} />
+              <input name="name" required autoFocus maxLength={120} defaultValue={profile?.full_name ?? ""} />
             </label>
             <label>
               Telefone *
-              <input name="phone" type="tel" required defaultValue={profile?.phone ?? ""} />
+              <input name="phone" type="tel" required maxLength={30} defaultValue={profile?.phone ?? ""} />
             </label>
           </div>
           <label>
@@ -1170,7 +1170,7 @@ function CheckoutModal({ total, cart, error, profile, email, submitting, onClose
           </fieldset>
           <label>
             Observações
-            <textarea name="notes" rows={3} placeholder="Alguma preferência ou observação?" />
+            <textarea name="notes" rows={3} maxLength={1000} placeholder="Alguma preferência ou observação?" />
           </label>
           {error && (
             <div className="form-error">
@@ -1281,11 +1281,11 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
             <>
               <label>
                 Nome completo
-                <input name="full_name" required disabled={busy} />
+                <input name="full_name" required maxLength={120} disabled={busy} />
               </label>
               <label>
                 Telefone
-                <input name="phone" type="tel" required disabled={busy} />
+                <input name="phone" type="tel" required maxLength={30} disabled={busy} />
               </label>
             </>
           )}
@@ -1345,7 +1345,7 @@ function CustomerPasswordInput({ name, minLength, required = false, autoComplete
   const [visible, setVisible] = useState(false);
   return (
     <span className="customer-password">
-      <input name={name} type={visible ? "text" : "password"} minLength={minLength} required={required} autoComplete={autoComplete} disabled={disabled} />
+      <input name={name} type={visible ? "text" : "password"} minLength={minLength} maxLength={128} required={required} autoComplete={autoComplete} disabled={disabled} />
       <button type="button" onClick={() => setVisible((value) => !value)} disabled={disabled} aria-label={visible ? "Ocultar senha" : "Revelar senha"} title={visible ? "Ocultar senha" : "Revelar senha"}>
         {visible ? <EyeOff /> : <Eye />}
       </button>
@@ -1548,7 +1548,7 @@ function CustomerAccountModal({ profile, orders, reviews, loading, onRefresh, on
                 <h3>Dados pessoais</h3>
                 <label>
                   Nome completo
-                  <input name="full_name" defaultValue={profile?.full_name ?? ""} required disabled={profileBusy} />
+                  <input name="full_name" defaultValue={profile?.full_name ?? ""} required maxLength={120} disabled={profileBusy} />
                 </label>
                 <label>
                   E-mail
@@ -1556,7 +1556,7 @@ function CustomerAccountModal({ profile, orders, reviews, loading, onRefresh, on
                 </label>
                 <label>
                   Telefone
-                  <input name="phone" type="tel" defaultValue={profile?.phone ?? ""} required disabled={profileBusy} />
+                  <input name="phone" type="tel" defaultValue={profile?.phone ?? ""} required maxLength={30} disabled={profileBusy} />
                 </label>
                 {profileFeedback && <ActionMessage feedback={profileFeedback} />}
                 <button className="primary-button" type="submit" disabled={profileBusy}>
@@ -1645,7 +1645,7 @@ function ReviewModal({ target, existing, onClose, onSubmit }: { target: { orderI
         </fieldset>
         <label>
           Comentário
-          <textarea name="comment" rows={4} defaultValue={existing?.comment ?? ""} placeholder="Conte como foi sua experiência." />
+          <textarea name="comment" rows={4} maxLength={1000} defaultValue={existing?.comment ?? ""} placeholder="Conte como foi sua experiência." />
         </label>
         {feedback && <ActionMessage feedback={feedback} />}
         <button className="primary-button wide" type="submit" disabled={busy}>

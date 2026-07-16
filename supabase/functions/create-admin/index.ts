@@ -14,6 +14,7 @@ type RequestBody = {
 };
 
 const validEmail = /^\S+@\S+\.\S+$/;
+const maxRequestBytes = 16 * 1024;
 const roleRank: Record<AccessRole, number> = { customer: 0, manager: 1, admin: 2, master: 3 };
 const staffRoles: AccessRole[] = ["manager", "admin", "master"];
 const editableRoles: AccessRole[] = ["customer", "manager", "admin"];
@@ -29,6 +30,10 @@ function errorResponse(message: string, status = 400) {
 export default {
   fetch: withSupabase({ auth: "user" }, async (request, context) => {
     if (request.method !== "POST") return errorResponse("Método não permitido.", 405);
+    const contentLength = Number(request.headers.get("content-length") ?? "0");
+    if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+      return errorResponse("Solicitação muito grande.", 413);
+    }
 
     const claims = context.userClaims as { sub?: string; id?: string; email?: string } | undefined;
     const callerId = claims?.sub ?? claims?.id;
@@ -68,6 +73,10 @@ export default {
     const email = body?.email?.trim().toLowerCase() ?? "";
     const password = body?.password ?? "";
     const requestedRole: AccessRole = body?.role ?? "manager";
+    if (email.length > 254) return errorResponse("O e-mail informado é muito longo.");
+    if (password.length > 128) return errorResponse("A senha informada é muito longa.");
+    if ((body?.fullName?.trim().length ?? 0) > 120) return errorResponse("O nome deve ter no máximo 120 caracteres.");
+    if ((body?.phone?.trim().length ?? 0) > 30) return errorResponse("O telefone deve ter no máximo 30 caracteres.");
 
     if (action === "update_user") {
       if (!body?.userId) return errorResponse("Usuário inválido.");

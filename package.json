@@ -1,6 +1,6 @@
 {
   "name": "oli-vinhos",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -33,6 +33,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "postcss": "8.5.19",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
