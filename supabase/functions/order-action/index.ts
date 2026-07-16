@@ -95,7 +95,8 @@ Deno.serve(async (request) => {
   if (next) {
     const actionBaseUrl = Deno.env.get("ORDER_ACTION_BASE_URL") ?? `${supabaseUrl}/functions/v1/order-action`;
     const actionUrl = await createActionLink(supabaseAdmin, order.id, next, order.authorized_email, actionBaseUrl);
-    const message = workflowEmail(currentOrder, next, actionUrl);
+    const cancelUrl = await createActionLink(supabaseAdmin, order.id, "cancel", order.authorized_email, actionBaseUrl);
+    const message = workflowEmail(currentOrder, next, actionUrl, cancelUrl);
     const sent = await sendTransactionalEmail({ to: order.authorized_email, ...message });
     followUpSent = sent.sent;
   }

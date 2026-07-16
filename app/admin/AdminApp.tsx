@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowLeft, Banknote, Check, CircleAlert, ClipboardList, Edit3, Eye, EyeOff, ImageUp, KeyRound, LogOut, Package, Plus, QrCode, RefreshCw, Search, Star, Trash2, UserPlus, Users, Wine, X } from "lucide-react";
+import { ArrowLeft, Banknote, Check, CircleAlert, CircleX, ClipboardList, Edit3, Eye, EyeOff, ImageUp, KeyRound, LogOut, Package, Plus, QrCode, RefreshCw, Search, Star, Trash2, UserPlus, Users, Wine, X } from "lucide-react";
 import { STORE_CONFIG } from "../data/store-config";
 import type { CustomerOrder, CustomerProfile, OrderStatus, PaymentStatus, ProductReview, ReviewStatus, WineProduct } from "../data/types";
 import { hasSupabaseConfig, supabase } from "../lib/supabase";
@@ -15,6 +15,7 @@ const orderStatusLabel: Record<OrderStatus, string> = { pending: "Pendente", con
 const orderStatuses: OrderStatus[] = ["pending", "preparing", "ready", "delivered", "canceled"];
 const paymentStatusLabel: Record<PaymentStatus, string> = { pending: "Pendente", paid: "Pago", expired: "Expirado", refunded: "Estornado", canceled: "Cancelado" };
 const paymentStatuses = Object.keys(paymentStatusLabel) as PaymentStatus[];
+type OrderUpdateRequest = { order: CustomerOrder; kind: "status"; nextStatus: OrderStatus } | { order: CustomerOrder; kind: "payment"; nextStatus: PaymentStatus };
 
 export default function AdminApp() {
   const [session, setSession] = useState<Session | null>(null);
@@ -38,6 +39,8 @@ export default function AdminApp() {
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [orderFilter, setOrderFilter] = useState<"all" | OrderStatus>("all");
   const [selectedOrder, setSelectedOrder] = useState<CustomerOrder | null>(null);
+  const [orderUpdate, setOrderUpdate] = useState<OrderUpdateRequest | null>(null);
+  const [orderUpdateBusy, setOrderUpdateBusy] = useState(false);
   const [adminAllowed, setAdminAllowed] = useState<boolean | null>(null);
   const [currentRole, setCurrentRole] = useState<"master" | "admin" | "manager" | null>(null);
   const [workflowEmail, setWorkflowEmail] = useState("marcelo.vian@gmail.com");
@@ -111,30 +114,55 @@ export default function AdminApp() {
       setMessage({ type: "ok", text: `E-mail do workflow alterado para ${saved}.` });
     }
   }
-  async function changeOrderStatus(order: CustomerOrder, nextStatus: OrderStatus) {
-    if (!supabase) return;
-    const { error } = await supabase.rpc("set_order_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
-    if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pedido #${order.order_number}.` });
+  async function changeOrderStatus(order: CustomerOrder, nextStatus: OrderStatus, customerMessage = "") {
+    if (!supabase) return false;
+    const note = customerMessage.trim() || null;
+    const { error } = await supabase.rpc("set_order_status", { p_order_id: order.id, p_status: nextStatus, p_note: note });
+    if (error) { setMessage({ type: "error", text: `Não foi possível atualizar o pedido #${order.order_number}.` }); return false; }
     else {
-      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "status" } });
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "status", customerMessage: note } });
       const notified = !notification.error && notification.data?.sent;
       setMessage(notified
         ? { type: "ok", text: `Pedido #${order.order_number} atualizado para ${orderStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
         : { type: "error", text: `Pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
       await loadOrders();
+      return true;
     }
   }
-  async function changePaymentStatus(order: CustomerOrder, nextStatus: PaymentStatus) {
-    if (!supabase) return;
-    const { error } = await supabase.rpc("set_payment_status", { p_order_id: order.id, p_status: nextStatus, p_note: null });
-    if (error) setMessage({ type: "error", text: `Não foi possível atualizar o pagamento do pedido #${order.order_number}.` });
+  async function changePaymentStatus(order: CustomerOrder, nextStatus: PaymentStatus, customerMessage = "") {
+    if (!supabase) return false;
+    const note = customerMessage.trim() || null;
+    const { error } = await supabase.rpc("set_payment_status", { p_order_id: order.id, p_status: nextStatus, p_note: note });
+    if (error) { setMessage({ type: "error", text: `Não foi possível atualizar o pagamento do pedido #${order.order_number}.` }); return false; }
     else {
-      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "payment" } });
+      const notification = await supabase.functions.invoke("notify-order-customer", { body: { orderId: order.id, kind: "payment", customerMessage: note } });
       const notified = !notification.error && notification.data?.sent;
       setMessage(notified
         ? { type: "ok", text: `Pagamento do pedido #${order.order_number}: ${paymentStatusLabel[nextStatus]}. Cliente avisado por e-mail.` }
         : { type: "error", text: `O pagamento do pedido #${order.order_number} foi atualizado, mas o e-mail do cliente não pôde ser enviado.` });
       await loadOrders();
+      return true;
+    }
+  }
+  function requestStatusUpdate(order: CustomerOrder, nextStatus: OrderStatus) {
+    if (order.status === nextStatus) return;
+    if (nextStatus === "canceled" && (order.status === "delivered" || order.status === "canceled")) return;
+    setOrderUpdate({ order, kind: "status", nextStatus });
+  }
+  function requestPaymentUpdate(order: CustomerOrder, nextStatus: PaymentStatus) {
+    if (order.payment_status === nextStatus) return;
+    setOrderUpdate({ order, kind: "payment", nextStatus });
+  }
+  async function submitOrderUpdate(customerMessage: string) {
+    if (!orderUpdate || orderUpdateBusy) return;
+    setOrderUpdateBusy(true);
+    const updated = orderUpdate.kind === "status"
+      ? await changeOrderStatus(orderUpdate.order, orderUpdate.nextStatus, customerMessage)
+      : await changePaymentStatus(orderUpdate.order, orderUpdate.nextStatus, customerMessage);
+    setOrderUpdateBusy(false);
+    if (updated) {
+      setOrderUpdate(null);
+      setSelectedOrder(null);
     }
   }
   async function moderateReview(review: ProductReview, status: ReviewStatus) {
@@ -302,11 +330,11 @@ export default function AdminApp() {
     <main className="admin-main">
       {message && <AdminMessage message={message}/>}
       {section === "products" && <ProductsSection products={products} visible={visible} loading={loading} query={query} status={status} setQuery={setQuery} setStatus={setStatus} onRefresh={()=>loadProducts(true)} onNew={() => setEditing({ ...blank })} onEdit={(product) => setEditing({ ...product })} onRemove={removeProduct} onToggle={toggleProduct}/>}
-      {section === "orders" && <OrdersSection orders={orders} filter={orderFilter} setFilter={setOrderFilter} onRefresh={()=>loadOrders(true)} onSelect={setSelectedOrder} onStatus={changeOrderStatus}/>}
+      {section === "orders" && <OrdersSection orders={orders} filter={orderFilter} setFilter={setOrderFilter} onRefresh={()=>loadOrders(true)} onSelect={setSelectedOrder} onStatus={requestStatusUpdate}/>}
       {section === "customers" && <CustomersSection customers={customers} orders={orders} canEdit={Boolean(currentRole)} onEdit={(customer)=>{setUserEditFeedback(null);setEditingUser(customer);}} onRefresh={async () => { await Promise.all([loadCustomers(), loadOrders()]); setMessage({type:"ok",text:"Clientes atualizados."}); }}/>}
       {section === "reviews" && <ReviewsSection reviews={reviews} onRefresh={()=>loadReviews(true)} onModerate={moderateReview}/>}
       {section === "admins" && canControlAccess && <><WorkflowEmailSettings email={workflowEmail} canEdit={canCreateAdmin} busy={workflowEmailBusy} onSave={saveWorkflowEmail}/><AdminsSection members={customers.filter((profile)=>profile.role==="master"||profile.role==="admin"||profile.role==="manager")} currentUserId={session.user.id} currentRole={currentRole} onEdit={(member)=>{setUserEditFeedback(null);setEditingUser(member);}} onRefresh={()=>loadCustomers(true)} onCreate={()=>{ setAdminCreationFeedback(null); setCreatingAdmin(true); }} onReset={resetAdminPassword} onRemove={removeAdmin} onRole={changeStaffRole}/></>}</main>
-    {editing&&<ProductForm product={editing} busy={savingProduct} setProduct={setEditing} onClose={()=>{if(!savingProduct)setEditing(null);}} onSave={saveProduct} onMessage={setMessage}/>} {changingPassword&&<PasswordForm busy={changingPasswordBusy} onClose={()=>{if(!changingPasswordBusy)setChangingPassword(false);}} onSave={changePassword}/>} {creatingAdmin&&<CreateAdminForm canCreateAdmin={canCreateAdmin} feedback={adminCreationFeedback} busy={creatingAdminBusy} onClose={()=>{ if (!creatingAdminBusy) { setCreatingAdmin(false); setAdminCreationFeedback(null); } }} onSave={createAdmin}/>} {editingUser&&<EditUserForm user={editingUser} callerRole={currentRole} feedback={userEditFeedback} busy={editingUserBusy} onClose={()=>{if(!editingUserBusy){setEditingUser(null);setUserEditFeedback(null);}}} onSave={updateUser}/>} {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onStatus={async (next) => { await changeOrderStatus(selectedOrder,next); setSelectedOrder(null); }} onPayment={async (next) => { await changePaymentStatus(selectedOrder,next); setSelectedOrder(null); }}/>}</div>;
+    {editing&&<ProductForm product={editing} busy={savingProduct} setProduct={setEditing} onClose={()=>{if(!savingProduct)setEditing(null);}} onSave={saveProduct} onMessage={setMessage}/>} {changingPassword&&<PasswordForm busy={changingPasswordBusy} onClose={()=>{if(!changingPasswordBusy)setChangingPassword(false);}} onSave={changePassword}/>} {creatingAdmin&&<CreateAdminForm canCreateAdmin={canCreateAdmin} feedback={adminCreationFeedback} busy={creatingAdminBusy} onClose={()=>{ if (!creatingAdminBusy) { setCreatingAdmin(false); setAdminCreationFeedback(null); } }} onSave={createAdmin}/>} {editingUser&&<EditUserForm user={editingUser} callerRole={currentRole} feedback={userEditFeedback} busy={editingUserBusy} onClose={()=>{if(!editingUserBusy){setEditingUser(null);setUserEditFeedback(null);}}} onSave={updateUser}/>} {selectedOrder&&<OrderDetail order={selectedOrder} onClose={()=>setSelectedOrder(null)} onStatus={(next)=>requestStatusUpdate(selectedOrder,next)} onPayment={(next)=>requestPaymentUpdate(selectedOrder,next)}/>} {orderUpdate&&<OrderUpdateDialog request={orderUpdate} busy={orderUpdateBusy} onClose={()=>{if(!orderUpdateBusy)setOrderUpdate(null);}} onConfirm={submitOrderUpdate}/>}</div>;
 }
 function AdminGate({ children }: { children: React.ReactNode }) { return <main className="admin-gate">{children}</main>; }
 function AdminMessage({ message }: { message: { type: "ok"|"error"; text:string } }) { return <div className={`admin-message ${message.type}`}><CircleAlert/>{message.text}</div>; }
@@ -326,7 +354,7 @@ function ProductsSection({ products, visible, loading, query, status, setQuery, 
 
 function OrdersSection({ orders, filter, setFilter, onRefresh, onSelect, onStatus }: { orders:CustomerOrder[]; filter:"all"|OrderStatus; setFilter:(value:"all"|OrderStatus)=>void; onRefresh:()=>void; onSelect:(order:CustomerOrder)=>void; onStatus:(order:CustomerOrder,status:OrderStatus)=>void }) {
   const visible = filter === "all" ? orders : orders.filter((order) => order.status === filter);
-  return <><header><div><p>Operação da loja</p><h1>Pedidos</h1></div><button className="secondary-action" onClick={onRefresh}><RefreshCw/> Atualizar</button></header><div className="admin-stats"><div><span>Total</span><b>{orders.length}</b></div><div><span>Pendentes</span><b>{orders.filter(o=>o.status==="pending").length}</b></div><div><span>Pagamentos pendentes</span><b>{orders.filter(o=>o.payment_status==="pending").length}</b></div><div><span>Entregues</span><b>{orders.filter(o=>o.status==="delivered").length}</b></div></div><div className="order-filters"><button className={filter === "all" ? "active" : ""} onClick={()=>setFilter("all")}>Todos</button>{orderStatuses.map((value)=><button key={value} className={filter === value ? "active" : ""} onClick={()=>setFilter(value)}>{orderStatusLabel[value]}</button>)}</div><div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Retirada</th><th>Total</th><th>Pagamento</th><th>Status</th><th/></tr></thead><tbody>{visible.map((order)=><tr key={order.id}><td><strong>#{order.order_number}</strong><small>{dateTime.format(new Date(order.created_at))}</small></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}<br/>{order.customer_phone}</small></td><td>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")}<small>{order.pickup_time.slice(0,5)}</small></td><td><strong>{money.format(Number(order.total))}</strong><small>{order.order_items.reduce((sum,item)=>sum+item.quantity,0)} item(ns)</small></td><td><span className={`payment-pill ${order.payment_status}`}>{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}{order.payment_method === "pix" ? "Pix" : "Dinheiro"} • {paymentStatusLabel[order.payment_status]}</span></td><td><select className={`order-status-select ${order.status}`} value={order.status} onChange={(event)=>onStatus(order,event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></td><td><button className="view-order" onClick={()=>onSelect(order)} aria-label={`Ver pedido ${order.order_number}`}><Eye/></button></td></tr>)}</tbody></table>{visible.length===0&&<p className="admin-empty">Nenhum pedido neste status.</p>}</div></>;
+  return <><header><div><p>Operação da loja</p><h1>Pedidos</h1></div><button className="secondary-action" onClick={onRefresh}><RefreshCw/> Atualizar</button></header><div className="admin-stats"><div><span>Total</span><b>{orders.length}</b></div><div><span>Pendentes</span><b>{orders.filter(o=>o.status==="pending").length}</b></div><div><span>Pagamentos pendentes</span><b>{orders.filter(o=>o.payment_status==="pending").length}</b></div><div><span>Entregues</span><b>{orders.filter(o=>o.status==="delivered").length}</b></div></div><div className="order-filters"><button className={filter === "all" ? "active" : ""} onClick={()=>setFilter("all")}>Todos</button>{orderStatuses.map((value)=><button key={value} className={filter === value ? "active" : ""} onClick={()=>setFilter(value)}>{orderStatusLabel[value]}</button>)}</div><div className="admin-table-wrap"><table className="admin-table orders-table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Retirada</th><th>Total</th><th>Pagamento</th><th>Status</th><th/></tr></thead><tbody>{visible.map((order)=><tr key={order.id}><td><strong>#{order.order_number}</strong><small>{dateTime.format(new Date(order.created_at))}</small></td><td><strong>{order.customer_name}</strong><small>{order.customer_email}<br/>{order.customer_phone}</small></td><td>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")}<small>{order.pickup_time.slice(0,5)}</small></td><td><strong>{money.format(Number(order.total))}</strong><small>{order.order_items.reduce((sum,item)=>sum+item.quantity,0)} item(ns)</small></td><td><span className={`payment-pill ${order.payment_status}`}>{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}{order.payment_method === "pix" ? "Pix" : "Dinheiro"} • {paymentStatusLabel[order.payment_status]}</span></td><td><select className={`order-status-select ${order.status}`} value={order.status} onChange={(event)=>onStatus(order,event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></td><td><div className="order-row-actions"><button className="view-order" onClick={()=>onSelect(order)} aria-label={`Ver pedido ${order.order_number}`} title="Ver pedido"><Eye/></button>{order.status!=="delivered"&&order.status!=="canceled"&&<button className="cancel-order" onClick={()=>onStatus(order,"canceled")} aria-label={`Cancelar pedido ${order.order_number}`} title="Cancelar pedido"><CircleX/></button>}</div></td></tr>)}</tbody></table>{visible.length===0&&<p className="admin-empty">Nenhum pedido neste status.</p>}</div></>;
 }
 
 function ReviewsSection({ reviews, onRefresh, onModerate }: { reviews:ProductReview[]; onRefresh:()=>void; onModerate:(review:ProductReview,status:ReviewStatus)=>void }) {
@@ -345,7 +373,14 @@ function AdminsSection({ members, currentUserId, currentRole, onEdit, onRefresh,
 }
 
 function OrderDetail({ order, onClose, onStatus, onPayment }: { order:CustomerOrder; onClose:()=>void; onStatus:(status:OrderStatus)=>void; onPayment:(status:PaymentStatus)=>void }) {
-  return <div className="admin-form-overlay"><div className="order-detail"><div className="form-head"><div><small>PEDIDO</small><h2>#{order.order_number}</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="order-detail-body"><section><h3>Cliente e retirada</h3><p><b>{order.customer_name}</b><br/>{order.customer_email}<br/>{order.customer_phone}</p><p>Retirada: <b>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</b></p>{order.notes&&<p>Observações: {order.notes}</p>}</section><section><h3>Pagamento</h3><p className="payment-detail">{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}<span><b>{order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"}</b><small>{paymentStatusLabel[order.payment_status]}{order.payment_provider==="homologation"?" • Homologação":""}</small></span></p>{order.pix_copy_paste&&<code className="pix-reference">{order.pix_copy_paste}</code>}<div className="admin-timeline">{order.payment_status_history?.map((entry)=><div key={entry.id}><i/><span><b>{paymentStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section><section><h3>Itens</h3>{order.order_items.map((item)=><div className="order-detail-item" key={item.id}><img src={assetUrl(item.image_url)} alt=""/><span><b>{item.product_name}</b><small>{item.quantity} × {money.format(Number(item.unit_price))}</small></span><strong>{money.format(Number(item.line_total))}</strong></div>)}<div className="order-detail-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div></section><section><h3>Histórico do pedido</h3><div className="admin-timeline">{order.order_status_history.map((entry)=><div key={entry.id}><i/><span><b>{orderStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section></div><div className="form-footer order-controls"><label>Pagamento<select value={order.payment_status} onChange={(event)=>onPayment(event.target.value as PaymentStatus)}>{paymentStatuses.map((value)=><option key={value} value={value}>{paymentStatusLabel[value]}</option>)}</select></label><label>Pedido<select value={order.status} onChange={(event)=>onStatus(event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></label><button type="button" onClick={onClose}>Fechar</button></div></div></div>;
+  return <div className="admin-form-overlay"><div className="order-detail"><div className="form-head"><div><small>PEDIDO</small><h2>#{order.order_number}</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></div><div className="order-detail-body"><section><h3>Cliente e retirada</h3><p><b>{order.customer_name}</b><br/>{order.customer_email}<br/>{order.customer_phone}</p><p>Retirada: <b>{new Date(`${order.pickup_date}T12:00:00`).toLocaleDateString("pt-BR")} às {order.pickup_time.slice(0,5)}</b></p>{order.notes&&<p>Observações: {order.notes}</p>}</section><section><h3>Pagamento</h3><p className="payment-detail">{order.payment_method === "pix" ? <QrCode/> : <Banknote/>}<span><b>{order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"}</b><small>{paymentStatusLabel[order.payment_status]}{order.payment_provider==="homologation"?" • Homologação":""}</small></span></p>{order.pix_copy_paste&&<code className="pix-reference">{order.pix_copy_paste}</code>}<div className="admin-timeline">{order.payment_status_history?.map((entry)=><div key={entry.id}><i/><span><b>{paymentStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section><section><h3>Itens</h3>{order.order_items.map((item)=><div className="order-detail-item" key={item.id}><img src={assetUrl(item.image_url)} alt=""/><span><b>{item.product_name}</b><small>{item.quantity} × {money.format(Number(item.unit_price))}</small></span><strong>{money.format(Number(item.line_total))}</strong></div>)}<div className="order-detail-total"><span>Total</span><strong>{money.format(Number(order.total))}</strong></div></section><section><h3>Histórico do pedido</h3><div className="admin-timeline">{order.order_status_history.map((entry)=><div key={entry.id}><i/><span><b>{orderStatusLabel[entry.status]}</b><small>{dateTime.format(new Date(entry.created_at))}{entry.note?` • ${entry.note}`:""}</small></span></div>)}</div></section></div><div className="form-footer order-controls"><label>Pagamento<select value={order.payment_status} onChange={(event)=>onPayment(event.target.value as PaymentStatus)}>{paymentStatuses.map((value)=><option key={value} value={value}>{paymentStatusLabel[value]}</option>)}</select></label><label>Pedido<select value={order.status} onChange={(event)=>onStatus(event.target.value as OrderStatus)}>{orderStatuses.map((value)=><option key={value} value={value}>{orderStatusLabel[value]}</option>)}</select></label>{order.status!=="delivered"&&order.status!=="canceled"&&<button className="danger-button" type="button" onClick={()=>onStatus("canceled")}><CircleX/> Cancelar pedido</button>}<button type="button" onClick={onClose}>Fechar</button></div></div></div>;
+}
+
+function OrderUpdateDialog({ request, busy, onClose, onConfirm }: { request:OrderUpdateRequest; busy:boolean; onClose:()=>void; onConfirm:(customerMessage:string)=>void }) {
+  const [customerMessage,setCustomerMessage]=useState("");
+  const isCancel=request.kind==="status"&&request.nextStatus==="canceled";
+  const label=request.kind==="status"?orderStatusLabel[request.nextStatus]:paymentStatusLabel[request.nextStatus];
+  return <div className="admin-form-overlay order-update-overlay"><form className="order-update-dialog" onSubmit={(event)=>{event.preventDefault();onConfirm(customerMessage);}}><div className="form-head"><div><small>{request.kind==="status"?"ETAPA DO PEDIDO":"PAGAMENTO"}</small><h2>{isCancel?"Cancelar pedido":`Atualizar para ${label}`}</h2></div><button type="button" onClick={onClose} disabled={busy} aria-label="Fechar"><X/></button></div><div className="order-update-fields"><p>Pedido <b>#{request.order.order_number}</b> — {request.order.customer_name}</p>{isCancel&&request.order.payment_status==="paid"&&<p className="order-update-warning"><CircleAlert/> O pedido está pago. O cancelamento não realiza estorno automático.</p>}<label>Mensagem ao cliente (opcional)<textarea rows={5} maxLength={500} value={customerMessage} onChange={(event)=>setCustomerMessage(event.target.value)} placeholder="Informe horário, local, motivo ou outra orientação sobre esta etapa." disabled={busy}/><small>{customerMessage.length}/500 — esta mensagem será registrada no histórico e enviada por e-mail.</small></label></div><div className="form-footer"><button type="button" onClick={onClose} disabled={busy}>Voltar</button><button className={isCancel?"danger-button":"primary-button"} type="submit" disabled={busy}>{busy?"Salvando…":isCancel?"Confirmar cancelamento":"Salvar e avisar cliente"}</button></div></form></div>;
 }
 
 function PasswordForm({ busy, onClose, onSave }: { busy:boolean; onClose:()=>void; onSave:(e:React.FormEvent<HTMLFormElement>)=>void }) {
