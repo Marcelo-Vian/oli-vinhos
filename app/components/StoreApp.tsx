@@ -92,6 +92,7 @@ export default function StoreApp() {
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [myReviews, setMyReviews] = useState<ProductReview[]>([]);
   const [authOpen, setAuthOpen] = useState(false);
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [checkoutAfterLogin, setCheckoutAfterLogin] = useState(false);
@@ -168,7 +169,14 @@ export default function StoreApp() {
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthOpen(false);
+        setAccountOpen(false);
+        setPasswordRecoveryOpen(true);
+      }
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -804,6 +812,18 @@ export default function StoreApp() {
           }}
         />
       )}
+      {passwordRecoveryOpen && (
+        <CustomerPasswordRecoveryModal
+          onClose={async () => {
+            await supabase?.auth.signOut();
+            setPasswordRecoveryOpen(false);
+          }}
+          onComplete={() => {
+            setPasswordRecoveryOpen(false);
+            setAccountOpen(true);
+          }}
+        />
+      )}
       {accountOpen && session && (
         <CustomerAccountModal
           profile={profile}
@@ -1201,7 +1221,7 @@ function CheckoutModal({ total, cart, error, profile, email, submitting, onClose
 }
 
 function CustomerAuthModal({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
   const [busy, setBusy] = useState(false);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -1218,7 +1238,14 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
     setFeedback(null);
     const email = String(data.get("email") ?? "");
     const password = String(data.get("password") ?? "");
-    if (mode === "login") {
+    if (mode === "reset") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}${sitePath("/")}`,
+      });
+      setFeedback(error
+        ? { type: "error", text: "Não foi possível enviar o link agora. Tente novamente em alguns minutos." }
+        : { type: "ok", text: "Se o e-mail estiver cadastrado, enviaremos um link para você definir uma nova senha." });
+    } else if (mode === "login") {
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -1273,9 +1300,9 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
         <div className="auth-brand">
           <Wine /> OLI <span>CLIENTES</span>
         </div>
-        <p className="eyebrow">{mode === "login" ? "Sua conta" : "Novo cliente"}</p>
-        <h2>{mode === "login" ? "Entrar" : "Criar cadastro"}</h2>
-        <p>{mode === "login" ? "Acompanhe pedidos e consulte seu histórico." : "Cadastre-se para registrar e acompanhar seus pedidos."}</p>
+        <p className="eyebrow">{mode === "login" ? "Sua conta" : mode === "signup" ? "Novo cliente" : "Recuperar acesso"}</p>
+        <h2>{mode === "login" ? "Entrar" : mode === "signup" ? "Criar cadastro" : "Redefinir senha"}</h2>
+        <p>{mode === "login" ? "Acompanhe pedidos e consulte seu histórico." : mode === "signup" ? "Cadastre-se para registrar e acompanhar seus pedidos." : "Informe seu e-mail para receber um link seguro de redefinição."}</p>
         <form onSubmit={submit}>
           {mode === "signup" && (
             <>
@@ -1293,10 +1320,17 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
             E-mail
             <input name="email" type="email" required autoComplete="email" disabled={busy} />
           </label>
-          <label>
-            Senha
-            <CustomerPasswordInput name="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} disabled={busy} />
-          </label>
+          {mode !== "reset" && (
+            <label>
+              Senha
+              <CustomerPasswordInput name="password" required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} disabled={busy} />
+            </label>
+          )}
+          {mode === "login" && (
+            <button type="button" className="auth-forgot" disabled={busy} onClick={() => { setMode("reset"); setFeedback(null); }}>
+              Esqueci minha senha
+            </button>
+          )}
           {mode === "signup" && (
             <label>
               Confirmar senha
@@ -1311,8 +1345,10 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
               </>
             ) : mode === "login" ? (
               "Entrar"
-            ) : (
+            ) : mode === "signup" ? (
               "Criar conta"
+            ) : (
+              "Enviar link de redefinição"
             )}
           </button>
         </form>
@@ -1325,8 +1361,62 @@ function CustomerAuthModal({ onClose }: { onClose: () => void }) {
             setFeedback(null);
           }}
         >
-          {mode === "login" ? "Ainda não tenho cadastro" : "Já tenho cadastro"}
+          {mode === "login" ? "Ainda não tenho cadastro" : mode === "signup" ? "Já tenho cadastro" : "Voltar para entrar"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function CustomerPasswordRecoveryModal({ onClose, onComplete }: { onClose: () => Promise<void> | void; onComplete: () => void }) {
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [completed, setCompleted] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    const data = new FormData(event.currentTarget);
+    const password = String(data.get("password") ?? "");
+    const confirmation = String(data.get("confirmation") ?? "");
+    if (password.length < 8) {
+      setFeedback({ type: "error", text: "Use pelo menos 8 caracteres." });
+      return;
+    }
+    if (password !== confirmation) {
+      setFeedback({ type: "error", text: "A confirmação da senha não confere." });
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) {
+      setFeedback({ type: "error", text: "O link expirou ou não é mais válido. Solicite uma nova redefinição." });
+      return;
+    }
+    setCompleted(true);
+    setFeedback({ type: "ok", text: "Senha redefinida com sucesso." });
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="auth-modal">
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar" disabled={busy}><X /></button>
+        <div className="auth-brand"><KeyRound /> OLI <span>CLIENTES</span></div>
+        <p className="eyebrow">Link confirmado</p>
+        <h2>Defina sua nova senha</h2>
+        <p>Escolha uma senha com pelo menos 8 caracteres.</p>
+        <form onSubmit={submit}>
+          <label>Nova senha<CustomerPasswordInput name="password" required minLength={8} autoComplete="new-password" disabled={busy || completed} /></label>
+          <label>Confirmar nova senha<CustomerPasswordInput name="confirmation" required minLength={8} autoComplete="new-password" disabled={busy || completed} /></label>
+          {feedback && <ActionMessage feedback={feedback} />}
+          {completed ? (
+            <button type="button" className="primary-button wide" onClick={onComplete}>Continuar para minha conta</button>
+          ) : (
+            <button type="submit" className="primary-button wide" disabled={busy}>{busy ? <><LoaderCircle className="spin" /> Atualizando…</> : "Salvar nova senha"}</button>
+          )}
+        </form>
       </div>
     </div>
   );
