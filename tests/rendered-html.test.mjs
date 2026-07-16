@@ -34,13 +34,15 @@ test("mantém dados de contato centralizados e sem segredos", async () => {
 });
 
 test("workflow por e-mail exige confirmação e guarda somente o hash do token", async () => {
-  const [actionFunction, notificationFunction, adminApp, storeApp, migration, simplifiedMigration, reviewMigration, itemReviewMigration, shared] = await Promise.all([
+  const [actionFunction, orderEmailFunction, notificationFunction, adminApp, storeApp, migration, simplifiedMigration, workflowMigration, reviewMigration, itemReviewMigration, shared] = await Promise.all([
     readFile(new URL("../supabase/functions/order-action/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/functions/send-order-email/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/functions/notify-order-customer/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/AdminApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/StoreApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715170000_order_email_workflow.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715190000_simplify_order_workflow.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260716190000_workflow_messages_and_cancellation.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715100000_payments_and_reviews.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260715195000_reviews_by_order_item.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/functions/_shared/order-workflow.ts", import.meta.url), "utf8"),
@@ -60,8 +62,13 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.match(shared, /Avaliar produtos comprados/);
   assert.match(actionFunction, /customerNotificationEmail\(currentOrder/);
   assert.match(actionFunction, /p_customer_message: customerMessage \|\| null/);
+  assert.match(actionFunction, /createActionLink\(supabaseAdmin, order\.id, "cancel"/);
+  assert.match(orderEmailFunction, /createActionLink\(context\.supabaseAdmin, order\.id, "cancel"/);
   assert.match(notificationFunction, /\["master", "admin", "manager"\]/);
   assert.match(adminApp, /notify-order-customer/);
+  assert.match(adminApp, /customerMessage: note/);
+  assert.match(adminApp, /Cancelar pedido/);
+  assert.match(adminApp, /Mensagem ao cliente \(opcional\)/);
   assert.doesNotMatch(adminApp, /Object\.keys\(orderStatusLabel\)/);
   assert.doesNotMatch(storeApp, /Enviar cópia por e-mail/);
   assert.match(storeApp, /URLSearchParams\(window\.location\.search\)\.get\("conta"\) === "pedidos"/);
@@ -69,6 +76,13 @@ test("workflow por e-mail exige confirmação e guarda somente o hash do token",
   assert.match(reviewMigration, /order_items\.product_id = p_product_id/);
   assert.match(simplifiedMigration, /v_token\.action in \('confirm_order', 'preparing'\)/);
   assert.match(simplifiedMigration, /p_customer_message text default null/);
+  assert.match(workflowMigration, /'delivered','cancel'/);
+  assert.match(workflowMigration, /v_token\.action = 'cancel'/);
+  assert.match(workflowMigration, /status in \('delivered', 'canceled'\)/);
+  assert.match(workflowMigration, /'customer_message', v_customer_message/);
+  assert.match(workflowMigration, /Mensagem ao cliente:/);
+  assert.match(shared, /cancelUrl/);
+  assert.match(shared, /Cancelar pedido/);
   assert.match(itemReviewMigration, /p_order_item_id uuid/);
   assert.match(itemReviewMigration, /item\.id = p_order_item_id/);
   assert.match(itemReviewMigration, /customer_order\.status = 'delivered'/);
@@ -95,6 +109,8 @@ test("tela pública de confirmação usa a API segura sem expor HTML pela funç�
   assert.match(entry, /format=json/);
   assert.match(entry, /method: "POST"/);
   assert.match(entry, /Mensagem ao cliente \(opcional\)/);
+  assert.doesNotMatch(entry, /content\.action === "ready" &&/);
+  assert.match(entry, /Sim, cancelar pedido/);
   assert.match(entry, /maxLength=\{500\}/);
   assert.match(entry, /JSON\.stringify\(\{ token, customerMessage \}\)/);
   assert.match(reviewPage, /review-action\.tsx/);

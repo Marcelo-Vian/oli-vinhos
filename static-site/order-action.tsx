@@ -87,19 +87,19 @@ function OrderActionPage() {
       </> : content.ok && content.order ? <>
         <h1>Pedido #{content.order.orderNumber}</h1>
         <p><b>{content.order.customerName}</b><br/>Total: {money.format(content.order.total)}<br/>Status atual: {content.order.statusLabel}</p>
-        <p>Deseja realmente executar a ação <b>{content.actionLabel}</b>?</p>
-        {content.action === "ready" && <label className="action-message">
+        <p>{content.action === "cancel" ? <>Deseja realmente <b>cancelar este pedido</b>?</> : <>Deseja realmente executar a ação <b>{content.actionLabel}</b>?</>}</p>
+        <label className="action-message">
           Mensagem ao cliente (opcional)
           <textarea
             rows={4}
             maxLength={500}
             value={customerMessage}
             onChange={(event) => setCustomerMessage(event.target.value)}
-            placeholder="Ex.: seu pedido está pronto. Retire hoje até 18h no endereço combinado."
+            placeholder={content.action === "cancel" ? "Ex.: o pedido foi cancelado conforme combinado." : "Ex.: informe horário, local ou outra orientação sobre esta etapa."}
           />
           <small>{customerMessage.length}/500 — use para informar horário, local ou outra orientação.</small>
-        </label>}
-        <button type="button" className="action-button" onClick={confirmAction} disabled={busy}>{busy ? "Confirmando…" : "Sim, confirmar ação"}</button>
+        </label>
+        <button type="button" className={`action-button ${content.action === "cancel" ? "danger" : ""}`} onClick={confirmAction} disabled={busy}>{busy ? "Confirmando…" : content.action === "cancel" ? "Sim, cancelar pedido" : "Sim, confirmar ação"}</button>
         <p className="action-muted">Nenhuma alteração acontece antes desta confirmação.</p>
       </> : <>
         <h1>{content.used ? "Ação já realizada" : content.expired ? "Link expirado" : "Link inválido"}</h1>

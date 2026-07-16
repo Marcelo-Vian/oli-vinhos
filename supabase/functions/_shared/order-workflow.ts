@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@^2.110.3";
 
-export type WorkflowAction = "confirm_payment" | "confirm_order" | "preparing" | "ready" | "delivered";
+export type WorkflowAction = "confirm_payment" | "confirm_order" | "preparing" | "ready" | "delivered" | "cancel";
 export type CustomerNotificationKind = "received" | "status" | "payment";
 
 export function isProductionEnvironment(): boolean {
@@ -40,6 +40,7 @@ export const actionLabels: Record<WorkflowAction, string> = {
   preparing: "Confirmar pedido e iniciar separação",
   ready: "Marcar pronto para retirada",
   delivered: "Confirmar entrega ao cliente",
+  cancel: "Cancelar pedido",
 };
 
 export const statusLabels: Record<string, string> = {
@@ -215,14 +216,14 @@ export function customerNotificationEmail(
   return { subject: environmentSubject(`${subjectPrefix} — OLI #${order.order_number}`), html, text };
 }
 
-export function workflowEmail(order: WorkflowOrder, action: WorkflowAction | null, actionUrl?: string): { subject: string; html: string; text: string } {
+export function workflowEmail(order: WorkflowOrder, action: WorkflowAction | null, actionUrl?: string, cancelUrl?: string): { subject: string; html: string; text: string } {
   const items = (order.order_items ?? []).map((item) =>
     `<tr><td style="padding:6px 0">${escapeHtml(item.quantity)}× ${escapeHtml(item.product_name)}</td><td style="padding:6px 0;text-align:right">${money(item.line_total)}</td></tr>`
   ).join("");
   const button = action && actionUrl
-    ? `<p style="margin:24px 0"><a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#701b31;color:#fff;text-decoration:none;padding:14px 20px;font-weight:bold">${escapeHtml(actionLabels[action])}</a></p><p style="font-size:12px;color:#766">O link expira em 7 dias e abre uma tela de confirmação antes de alterar o pedido.</p>`
+    ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:24px 0"><tr><td style="padding-right:6px"><a href="${escapeHtml(actionUrl)}" style="display:block;background:#701b31;color:#fff;text-decoration:none;padding:14px 16px;text-align:center;font-weight:bold">${escapeHtml(actionLabels[action])}</a></td>${cancelUrl ? `<td style="padding-left:6px"><a href="${escapeHtml(cancelUrl)}" style="display:block;background:#8d2639;color:#fff;text-decoration:none;padding:14px 16px;text-align:center;font-weight:bold">Cancelar pedido</a></td>` : ""}</tr></table><p style="font-size:12px;color:#766">Os links expiram em 7 dias e abrem uma tela de confirmação antes de alterar o pedido. Em qualquer etapa ativa você pode incluir uma mensagem ao cliente.</p>`
     : `<p style="background:#e5f2e9;color:#245b3b;padding:12px"><b>Fluxo concluído.</b> Nenhuma ação operacional está pendente.</p>`;
   const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#241c1b"><p style="color:#701b31;letter-spacing:2px">${environmentBrand()}</p><h1>Pedido #${escapeHtml(order.order_number)}</h1><p><b>${escapeHtml(order.customer_name)}</b><br>${escapeHtml(order.customer_email)}<br>${escapeHtml(order.customer_phone)}</p><table style="width:100%;border-collapse:collapse">${items}<tr style="border-top:1px solid #ddd"><td style="padding-top:12px"><b>Total</b></td><td style="padding-top:12px;text-align:right"><b>${money(order.total)}</b></td></tr></table><p><b>Status:</b> ${escapeHtml(statusLabels[order.status] ?? order.status)}<br><b>Pagamento:</b> ${order.payment_method === "pix" ? "Pix" : "Dinheiro na retirada"} — ${escapeHtml(order.payment_status === "paid" ? "Pago" : "Pendente")}<br><b>Retirada:</b> ${escapeHtml(order.pickup_date)} às ${escapeHtml(order.pickup_time).slice(0,5)}</p>${button}</div>`;
-  const text = `${environmentText()}\nPedido #${order.order_number}\nCliente: ${order.customer_name}\nTotal: ${money(order.total)}\nStatus: ${statusLabels[order.status] ?? order.status}${action && actionUrl ? `\n${actionLabels[action]}: ${actionUrl}` : "\nFluxo concluído."}`;
+  const text = `${environmentText()}\nPedido #${order.order_number}\nCliente: ${order.customer_name}\nTotal: ${money(order.total)}\nStatus: ${statusLabels[order.status] ?? order.status}${action && actionUrl ? `\n${actionLabels[action]}: ${actionUrl}${cancelUrl ? `\nCancelar pedido: ${cancelUrl}` : ""}` : "\nFluxo concluído."}`;
   return { subject: environmentSubject(`Pedido OLI #${order.order_number} — ${statusLabels[order.status] ?? order.status}`), html, text };
 }

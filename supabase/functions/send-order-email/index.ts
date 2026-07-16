@@ -50,7 +50,8 @@ export default {
     const workflowOrder = order as WorkflowOrder;
     const action = nextAction(workflowOrder);
     const actionUrl = action ? await createActionLink(context.supabaseAdmin, order.id, action, managerEmail, actionBaseUrl) : undefined;
-    const managerMessage = workflowEmail(workflowOrder, action, actionUrl);
+    const cancelUrl = action ? await createActionLink(context.supabaseAdmin, order.id, "cancel", managerEmail, actionBaseUrl) : undefined;
+    const managerMessage = workflowEmail(workflowOrder, action, actionUrl, cancelUrl);
     const managerResult = await sendTransactionalEmail({ to: managerEmail, ...managerMessage });
 
     let customerSent = false;
